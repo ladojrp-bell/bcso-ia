@@ -156,6 +156,9 @@ app.get('/', ensureAuth, (req, res) => {
 });
 
 // New Case
+app.get('/case/new', ensureAuth, (req, res) => {
+  res.render('new', { title: 'New Case' });
+});
 app.post('/case/new', ensureAuth, upload.array('evidence', 10), (req, res) => {
   const { complainant, officer, incidentDate, summary, severity, assigned } = req.body;
   const files = req.files || [];
