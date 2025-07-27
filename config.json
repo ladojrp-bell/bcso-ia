@@ -6,5 +6,5 @@
   "iaRoleId": "Bot_iaRoleID",
   "dashboardUser": "bcsointernal",
   "dashboardPass": "casesia2236"
-  "dashboardUrl": "process.env.DASHBOARD_URL" || 'http://localhost:3000',
+  "dashboardUrl": "process.env.DASHBOARD_URL"
 }
