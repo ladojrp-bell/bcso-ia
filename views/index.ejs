@@ -1,0 +1,55 @@
+                <!DOCTYPE html>
+                <html lang="en">
+                <head>
+                  <meta charset="UTF-8">
+                  <title>IA Dashboard</title>
+                  <script src="https://cdn.tailwindcss.com"></script>
+                </head>
+                <body class="bg-gray-100 text-gray-900">
+                  <div class="bg-blue-900 text-white py-4">
+                    <div class="container mx-auto px-6">
+                      <div class="flex justify-between items-center">
+                        <h1 class="text-xl font-bold">BCSO Internal Affairs Dashboard</h1>
+                        <div class="space-x-4">
+                          <a href="/admin/users" class="bg-white text-blue-900 px-4 py-2 rounded font-semibold hover:bg-gray-200 transition">Manage Users</a>
+                          <a href="/logout" class="text-white underline">Logout</a>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="container mx-auto p-6">
+                    <div class="flex justify-between items-center mb-4">
+                      <h2 class="text-2xl font-bold">Active IA Cases</h2>
+                      <a href="/case/new" class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition">+ New Case</a>
+                    </div>
+                    <form method="GET" class="mb-4">
+                      <input name="q" placeholder="Search by case or officer" class="border px-2 py-1 rounded" />
+                      <button class="bg-blue-600 text-white px-3 py-1 rounded ml-2">Search</button>
+                    </form>
+                    <table class="min-w-full bg-white shadow rounded-lg overflow-hidden">
+                      <thead class="bg-gray-200 text-left">
+                        <tr>
+                          <th class="p-3">Case #</th>
+                          <th class="p-3">Officer</th>
+                          <th class="p-3">Status</th>
+                          <th class="p-3">Assigned</th>
+                          <th class="p-3">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <% cases.forEach(c => { %>
+                          <tr class="border-t">
+                            <td class="p-3"><%= c.caseNum %></td>
+                            <td class="p-3"><%= c.officer %></td>
+                            <td class="p-3"><%= c.status %></td>
+                            <td class="p-3"><%= c.assigned %></td>
+                            <td class="p-3">
+                              <a href="/case/<%= c.caseNum %>" class="text-blue-600 hover:underline">View</a>
+                            </td>
+                          </tr>
+                        <% }) %>
+                      </tbody>
+                    </table>
+                  </div>
+                </body>
+                </html>

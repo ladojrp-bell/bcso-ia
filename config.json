@@ -1,0 +1,9 @@
+{
+  "token": "Bot_token",
+  "clientId": "Bot_clientID",
+  "guildId": "Bot_guildID",
+  "caseChannelId": "Bot_caseChannelID",
+  "iaRoleId": "Bot_iaRoleID",
+  "dashboardUser": "bcsointernal",
+  "dashboardPass": "casesia2236"
+}

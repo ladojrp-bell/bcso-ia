@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Manage Users</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 text-gray-900">
+  <div class="container mx-auto p-6">
+    <h2 class="text-2xl font-bold mb-4">Manage Users</h2>
+    <table class="min-w-full bg-white shadow rounded mb-6">
+      <thead class="bg-gray-200">
+        <tr>
+          <th class="p-3 text-left">Username</th>
+          <th class="p-3 text-left">Role</th>
+          <th class="p-3">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% users.forEach(user => { %>
+          <tr class="border-t">
+            <td class="p-3"><%= user.username %></td>
+            <td class="p-3"><%= user.role %></td>
+            <td class="p-3">
+              <form method="POST" action="/admin/users/<%= user.id %>/delete" onsubmit="return confirm('Delete this user?')">
+                <button type="submit" class="text-red-600 hover:underline">Delete</button>
+              </form>
+            </td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+    <h3 class="text-xl font-semibold mb-2">Add New User</h3>
+    <form method="POST" action="/admin/users/add" class="space-y-4 max-w-md bg-white p-4 rounded shadow">
+      <div>
+        <label class="block font-medium">Username</label>
+        <input name="username" required class="border rounded p-2 w-full" />
+      </div>
+      <div>
+        <label class="block font-medium">Password</label>
+        <input name="password" type="password" required class="border rounded p-2 w-full" />
+      </div>
+      <div>
+        <label class="block font-medium">Role</label>
+        <select name="role" class="border rounded p-2 w-full">
+          <option value="user">User</option>
+          <option value="admin">Admin</option>
+        </select>
+      </div>
+      <button type="submit" class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">Add User</button>
+    </form>
+  </div>
+</body>
+</html>
