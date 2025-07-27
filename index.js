@@ -156,25 +156,45 @@ app.get('/', ensureAuth, (req, res) => {
 });
 
 // New Case
-app.get('/case/new', ensureAuth, (req, res) => res.render('new', { title: 'New Case' }));
 app.post('/case/new', ensureAuth, upload.array('evidence', 10), (req, res) => {
   const { complainant, officer, incidentDate, summary, severity, assigned } = req.body;
   const files = req.files || [];
+
+  console.log('New Case Submission:');
+  console.log('Body:', req.body);
+  console.log('Files:', files);
+
   const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
   db.get('SELECT COUNT(*) AS cnt FROM cases WHERE createdAt LIKE ?', [`${stamp}%`], (e, row) => {
+    if (e) {
+      console.error('Count Error:', e);
+      return res.status(500).send('DB error on case count');
+    }
+
     const caseNum = `IA-${stamp}-${String(row.cnt + 1).padStart(3, '0')}`;
     const now = new Date().toISOString();
-    db.run('INSERT INTO cases(caseNum,complainant,officer,incidentDate,summary,severity,assigned,createdBy,createdAt) VALUES(?,?,?,?,?,?,?,?,?)',
-      [caseNum, complainant, officer, incidentDate, summary, severity, assigned, req.session.user, now], err => {
+
+    db.run(
+      'INSERT INTO cases(caseNum,complainant,officer,incidentDate,summary,severity,assigned,createdBy,createdAt) VALUES(?,?,?,?,?,?,?,?,?)',
+      [caseNum, complainant, officer, incidentDate, summary, severity, assigned, req.session.user, now],
+      err => {
+        if (err) {
+          console.error('Insert Error:', err);
+          return res.status(500).send('DB error on insert');
+        }
+
         files.forEach(f => {
           const url = `/static/uploads/${f.filename}`;
-          db.run('INSERT INTO attachments(caseNum,url) VALUES(?,?)', [caseNum, url]);
+          db.run('INSERT INTO attachments(caseNum,url) VALUES(?,?)', [caseNum, url], err2 => {
+            if (err2) console.error('Attachment Insert Error:', err2);
+          });
         });
+
         res.redirect(`/case/${caseNum}`);
-      });
+      }
+    );
   });
 });
-
 // View Case
 app.get('/case/:caseNum', ensureAuth, (req, res) => {
   const cn = req.params.caseNum;
