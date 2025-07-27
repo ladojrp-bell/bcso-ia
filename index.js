@@ -87,6 +87,10 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
+
+const expressLayouts = require('express-ejs-layouts');
+app.use(expressLayouts);
+
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(session({ secret: 'ia_secret', resave: false, saveUninitialized: false }));
 app.use((req, res, next) => { res.locals.session = req.session; next(); });
