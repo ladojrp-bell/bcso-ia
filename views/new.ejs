@@ -1,61 +1,16 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <title>New IA Case</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body class="bg-gray-100 text-gray-900">
-  <div class="bg-blue-900 text-white py-4">
-    <div class="container mx-auto px-6">
-      <div class="flex justify-between items-center">
-        <h1 class="text-xl font-bold">BCSO Internal Affairs Dashboard</h1>
-        <div class="space-x-4">
-          <a href="/admin/users" class="bg-white text-blue-900 px-4 py-2 rounded font-semibold hover:bg-gray-200 transition">Manage Users</a>
-          <a href="/logout" class="text-white underline">Logout</a>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div class="container mx-auto p-6 max-w-3xl">
-    <h1 class="text-2xl font-bold mb-4">Create New IA Case</h1>
-    <form action="/case/new" method="POST" enctype="multipart/form-data" class="space-y-4">
-      <div>
-        <label class="block font-medium">Complainant</label>
-        <input name="complainant" required class="border rounded p-2 w-full" />
-      </div>
-      <div>
-        <label class="block font-medium">Officer Involved</label>
-        <input name="officer" required class="border rounded p-2 w-full" />
-      </div>
-      <div>
-        <label class="block font-medium">Incident Date</label>
-        <input name="incidentDate" type="date" required class="border rounded p-2 w-full" />
-      </div>
-      <div>
-        <label class="block font-medium">Severity</label>
-        <select name="severity" required class="border rounded p-2 w-full">
-          <option>Low</option>
-          <option>Medium</option>
-          <option>High</option>
-          <option>Critical</option>
-        </select>
-      </div>
-      <div>
-        <label class="block font-medium">Assigned Investigator</label>
-        <input name="assigned" class="border rounded p-2 w-full" />
-      </div>
-      <div>
-        <label class="block font-medium">Summary</label>
-        <textarea name="summary" rows="4" required class="border rounded p-2 w-full"></textarea>
-      </div>
-      <div>
-        <label class="block font-medium">Evidence Files</label>
-        <input name="evidence" type="file" multiple class="mt-1" />
-      </div>
-      <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition">Create Case</button>
-    </form>
-  </div>
-</body>
-</html>
+<% layout('layout') %>
+<h2 class="text-2xl font-semibold mb-4">New IA Case</h2>
+<form method="POST" action="/case/new" enctype="multipart/form-data" class="space-y-4">
+  <input name="complainant" placeholder="Complainant" required class="border p-2 w-full rounded">
+  <input name="officer" placeholder="Officer" required class="border p-2 w-full rounded">
+  <input name="incidentDate" type="date" required class="border p-2 rounded">
+  <textarea name="summary" placeholder="Summary" required class="border p-2 w-full rounded"></textarea>
+  <select name="severity" class="border p-2 rounded w-full">
+    <option value="Low">Low</option>
+    <option value="Medium">Medium</option>
+    <option value="High">High</option>
+  </select>
+  <input name="assigned" placeholder="Assigned To" class="border p-2 w-full rounded">
+  <input type="file" name="evidence" multiple class="border p-2 rounded">
+  <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Create Case</button>
+</form>
