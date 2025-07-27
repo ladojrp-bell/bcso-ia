@@ -11,6 +11,7 @@ const PDFDocument = require('pdfkit');
 const path = require('path');
 const multer = require('multer');
 const bcrypt = require('bcrypt');
+const expressLayouts = require('express-ejs-layouts');
 
 // Configuration
 const config = {
