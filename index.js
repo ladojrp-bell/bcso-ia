@@ -229,6 +229,14 @@ app.get('/cases', ensureAuth, (req, res) => {
   });
 });  // ←–– This closes the app.get('/cases', …) block
 
+// DEBUG: show raw cases JSON
+app.get('/debug/cases', ensureAuth, (req, res) => {
+  db.all('SELECT * FROM cases ORDER BY createdAt DESC', [], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
 // Show “New Case” form
 app.get('/case/new', ensureAuth, (req, res) => {
   res.render('new', { title: 'New Case' });
