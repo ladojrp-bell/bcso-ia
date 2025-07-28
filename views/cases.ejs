@@ -21,15 +21,15 @@
     <% cases.forEach(c => { %>
       <tr>
         <td class="px-4 py-2 border">
-          <a href="/case/<%= c.caseNum %>" class="text-blue-600 underline">
-            <%= c.caseNum %>
+          <a href="/case/<%= c.casenum %>" class="text-blue-600 underline">
+            <%= c.casenum %>
           </a>
         </td>
         <td class="px-4 py-2 border"><%= c.status %></td>
         <td class="px-4 py-2 border"><%= c.assigned || '—' %></td>
         <td class="px-4 py-2 border"><%= c.createdBy %></td>
         <td class="px-4 py-2 border">
-          <%= new Date(c.createdAt).toLocaleString() %>
+          <%= new Date(c.createdat).toLocaleString() %>
         </td>
       </tr>
     <% }) %>
