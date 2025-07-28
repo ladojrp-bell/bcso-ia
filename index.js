@@ -304,29 +304,134 @@ app.post('/case/:caseNum/comment', ensureAuth, (req, res) => {
 app.get('/case/:caseNum/export', ensureAuth, (req, res) => {
   const cn = req.params.caseNum;
   db.get('SELECT * FROM cases WHERE caseNum = ?', [cn], (e, row) => {
-    res.setHeader('Content-Disposition', `attachment; filename="IA_${cn}.pdf"`);
-    const doc = new PDFDocument();
-    doc.pipe(res);
-    doc.fontSize(18).text(`IA Case ${cn}`, { align: 'center' }).moveDown();
-    doc.fontSize(12)
-      .text(`Complainant: ${row.complainant}`)
-      .text(`Officer: ${row.officer}`)
-      .text(`Date: ${row.incidentDate}`)
-      .text(`Severity: ${row.severity}`)
-      .text(`Status: ${row.status}`)
-      .text(`Assigned: ${row.assigned}`)
-      .moveDown()
-      .text('Summary:')
-      .moveDown()
-      .text(row.summary);
+    if (e || !row) return res.status(404).send('Case not found');
 
-    db.all('SELECT url FROM attachments WHERE caseNum = ?', [cn], (e2, atts) => {
-      if (atts.length) {
-        doc.moveDown().text('Attachments:');
-        atts.forEach(a => doc.text(a.url));
+    // set response headers
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="BCSO_IA_Case_${cn}.pdf"`
+    );
+
+    // new PDF document
+    const doc = new PDFDocument({
+      size: 'LETTER',
+      margin: 50,
+      info: {
+        Title: `IA Case ${cn}`,
+        Author: "Blaine County Sheriff's Office",
       }
-      doc.end();
     });
+
+    // pipe PDF into response
+    doc.pipe(res);
+
+    // 1) HEADER – badge + titles
+    const badgePath = path.join(__dirname, 'public', 'images', 'badge.png');
+    if (fs.existsSync(badgePath)) {
+      doc.image(badgePath, doc.page.width - 110, 20, { width: 60 });
+    }
+    doc
+      .fillColor('#003366')
+      .font('Helvetica-Bold')
+      .fontSize(18)
+      .text("Blaine County Sheriff's Office", { align: 'center' });
+
+    doc
+      .moveDown(0.2)
+      .fontSize(14)
+      .text('Internal Affairs Case Report', { align: 'center' });
+
+    // horizontal rule
+    doc
+      .moveDown(0.3)
+      .strokeColor('#003366')
+      .lineWidth(1)
+      .moveTo(50, doc.y)
+      .lineTo(doc.page.width - 50, doc.y)
+      .stroke();
+
+    // 2) CASE METADATA in two columns
+    doc.moveDown();
+    const metadataTop = doc.y;
+    const labelOptions = { width: 120, continued: true, bold: true };
+    const valueOptions = { width: doc.page.width - 200 };
+
+    doc
+      .font('Helvetica-Bold')
+      .fontSize(12)
+      .fillColor('black')
+      .text('Case Number:', labelOptions)
+      .font('Helvetica')
+      .text(row.caseNum, valueOptions);
+
+    doc
+      .font('Helvetica-Bold')
+      .text('Status:', labelOptions)
+      .font('Helvetica')
+      .text(row.status, valueOptions);
+
+    doc
+      .moveDown(0.2)
+      .font('Helvetica-Bold')
+      .text('Reported By:', labelOptions)
+      .font('Helvetica')
+      .text(row.complainant, valueOptions);
+
+    doc
+      .font('Helvetica-Bold')
+      .text('Officer:', labelOptions)
+      .font('Helvetica')
+      .text(row.officer, valueOptions);
+
+    doc
+      .moveDown(0.2)
+      .font('Helvetica-Bold')
+      .text('Date of Incident:', labelOptions)
+      .font('Helvetica')
+      .text(row.incidentDate, valueOptions);
+
+    doc
+      .font('Helvetica-Bold')
+      .text('Assigned To:', labelOptions)
+      .font('Helvetica')
+      .text(row.assigned || 'Unassigned', valueOptions);
+
+    // 3) SUMMARY
+    doc.moveDown(1);
+    doc
+      .font('Helvetica-Bold')
+      .fontSize(13)
+      .fillColor('#003366')
+      .text('Summary', { underline: true });
+    doc
+      .moveDown(0.3)
+      .font('Helvetica')
+      .fontSize(11)
+      .fillColor('black')
+      .text(row.summary, { align: 'justify' });
+
+    // 4) ATTACHMENTS
+    db.all(
+      'SELECT url FROM attachments WHERE caseNum = ?',
+      [cn],
+      (e2, atts) => {
+        if (atts.length) {
+          doc.moveDown(0.8);
+          doc
+            .font('Helvetica-Bold')
+            .fontSize(13)
+            .fillColor('#003366')
+            .text('Attachments', { underline: true });
+          doc.moveDown(0.3).font('Helvetica').fontSize(11);
+          atts.forEach((a, i) => {
+            doc.text(`${i + 1}. ${a.url}`, { link: a.url, underline: true });
+          });
+        }
+        // finalize PDF
+        doc.end();
+      }
+    );
   });
 });
 
