@@ -26,6 +26,7 @@ app.set('layout', 'layout');
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(session({ secret: 'ia_secret', resave: false, saveUninitialized: false }));
 app.use('/static', express.static(path.join(__dirname, 'public')));
+app.use('/images', express.static(path.join(__dirname, 'images')));
 app.use((req, res, next) => {
   res.locals.session = req.session;
   next();
