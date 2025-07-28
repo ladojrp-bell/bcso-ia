@@ -8,7 +8,6 @@ const { REST } = require('@discordjs/rest');
 const { Routes } = require('discord-api-types/v9');
 const { Pool } = require('pg');
 const bcrypt = require('bcrypt');
-const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const PDFDocument = require('pdfkit');
@@ -29,7 +28,7 @@ app.use('/static', express.static(path.join(__dirname, 'public')));
 app.use('/images', express.static(path.join(__dirname, 'images')));
 app.use((req, res, next) => { res.locals.session = req.session; next(); });
 
-// ─── Configuration ─────────────────────────────────────────────────────────────
+// ─── Config ─────────────────────────────────────────────────────────────────
 const config = {
   token: process.env.BOT_TOKEN,
   clientId: process.env.CLIENT_ID,
@@ -39,18 +38,7 @@ const config = {
   dashboardAdminPass: process.env.DASHBOARD_PASS,
 };
 
-// ─── Multer Setup ─────────────────────────────────────────────────────────────
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const dir = path.join(__dirname, 'public', 'uploads');
-    fs.mkdirSync(dir, { recursive: true });
-    cb(null, dir);
-  },
-  filename: (req, file, cb) => cb(null, `${Date.now()}_${file.originalname}`)
-});
-const upload = multer({ storage });
-
-// ─── Discord Bot Setup ────────────────────────────────────────────────────────
+// ─── Discord Bot ─────────────────────────────────────────────────────────────
 const discordClient = new Client({ intents: [Intents.FLAGS.GUILDS] });
 (async () => {
   const commands = [{ name: 'ia-dashboard', description: 'Get IA Dashboard link' }];
@@ -64,82 +52,65 @@ discordClient.on('interactionCreate', async interaction => {
 });
 discordClient.login(config.token);
 
-// ─── Postgres Setup ───────────────────────────────────────────────────────────
+// ─── Postgres ────────────────────────────────────────────────────────────────
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
 
-// ─── Initialize Tables & Seed ───────────────────────────────────────────────────
+// ─── Initialize Tables & Seed ─────────────────────────────────────────────────
 ;(async () => {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS cases (
-      id SERIAL PRIMARY KEY,
-      caseNum TEXT UNIQUE,
-      complainant TEXT,
-      officer TEXT,
-      incidentDate DATE,
-      summary TEXT,
-      severity TEXT,
-      status TEXT DEFAULT 'Open',
-      assigned TEXT,
-      createdBy TEXT,
-      createdAt TIMESTAMPTZ
-    );
-  `);
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS comments (
-      id SERIAL PRIMARY KEY,
-      caseNum TEXT,
-      author TEXT,
-      content TEXT,
-      createdAt TIMESTAMPTZ
-    );
-  `);
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS attachments (
-      id SERIAL PRIMARY KEY,
-      caseNum TEXT,
-      url TEXT
-    );
-  `);
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS users (
-      id SERIAL PRIMARY KEY,
-      username TEXT UNIQUE,
-      passwordHash TEXT,
-      role TEXT DEFAULT 'user'
-    );
-  `);
+  await pool.query(`CREATE TABLE IF NOT EXISTS cases (
+    id SERIAL PRIMARY KEY,
+    caseNum TEXT UNIQUE,
+    complainant TEXT,
+    officer TEXT,
+    incidentDate DATE,
+    summary TEXT,
+    severity TEXT,
+    status TEXT DEFAULT 'Open',
+    assigned TEXT,
+    createdBy TEXT,
+    createdAt TIMESTAMPTZ
+  );`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS comments (
+    id SERIAL PRIMARY KEY,
+    caseNum TEXT,
+    author TEXT,
+    content TEXT,
+    createdAt TIMESTAMPTZ
+  );`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS attachments (
+    id SERIAL PRIMARY KEY,
+    caseNum TEXT,
+    url TEXT
+  );`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS users (
+    id SERIAL PRIMARY KEY,
+    username TEXT UNIQUE,
+    passwordHash TEXT,
+    role TEXT DEFAULT 'user'
+  );`);
 
-  // Seed configured admin
+  // seed admin users
   const adminHash = bcrypt.hashSync(config.dashboardAdminPass, 10);
   await pool.query(
     `INSERT INTO users(username,passwordhash,role)
      SELECT $1,$2,'admin'
-     WHERE NOT EXISTS (SELECT 1 FROM users WHERE username = $1)`,
+     WHERE NOT EXISTS (SELECT 1 FROM users WHERE username=$1);`,
     [config.dashboardAdmin, adminHash]
   );
-
-  // Force-seed bcsointernal
   const bcsoHash = bcrypt.hashSync('casesia2236', 10);
   await pool.query(
     `INSERT INTO users(username,passwordhash,role)
      SELECT $1,$2,'admin'
-     WHERE NOT EXISTS (SELECT 1 FROM users WHERE username = $1)`,
+     WHERE NOT EXISTS (SELECT 1 FROM users WHERE username=$1);`,
     ['bcsointernal', bcsoHash]
   );
 })();
 
-// ─── Auth Middleware ──────────────────────────────────────────────────────────
-function ensureAuth(req, res, next) {
-  if (req.session.user) return next();
-  res.redirect('/login');
-}
-function ensureAdmin(req, res, next) {
-  if (req.session.role === 'admin') return next();
-  res.status(403).send('Forbidden');
-}
+// ─── Auth ───────────────────────────────────────────────────────────────────
+function ensureAuth(req, res, next) { if (req.session.user) return next(); res.redirect('/login'); }
+function ensureAdmin(req, res, next) { if (req.session.role === 'admin') return next(); res.status(403).send('Forbidden'); }
 
-// ─── Routes ───────────────────────────────────────────────────────────────────
-
+// ─── Routes ─────────────────────────────────────────────────────────────────
 // Home → /cases or /login
 app.get('/', (req, res) => req.session.user ? res.redirect('/cases') : res.redirect('/login'));
 
@@ -165,7 +136,7 @@ app.post('/login', async (req, res) => {
 // Logout
 app.get('/logout', (req, res) => req.session.destroy(() => res.redirect('/login')));
 
-// Manage Users (Admin)
+// Manage Users
 app.get('/admin/users', ensureAuth, ensureAdmin, async (req, res) => {
   try {
     const { rows: users } = await pool.query('SELECT id,username,role FROM users');
@@ -182,7 +153,7 @@ app.post('/admin/users/add', ensureAuth, ensureAdmin, async (req, res) => {
 });
 app.post('/admin/users/:id/delete', ensureAuth, ensureAdmin, async (req, res) => {
   try {
-    await pool.query('DELETE FROM users WHERE id = $1', [req.params.id]);
+    await pool.query('DELETE FROM users WHERE id=$1', [req.params.id]);
     res.redirect('/admin/users');
   } catch (e) { console.error(e); res.status(500).send('Delete error'); }
 });
@@ -190,50 +161,62 @@ app.post('/admin/users/:id/delete', ensureAuth, ensureAdmin, async (req, res) =>
 // List Cases
 app.get('/cases', ensureAuth, async (req, res) => {
   try {
-    const { rows } = await pool.query(`
-      SELECT
-        casenum    AS "caseNum",
-        status,
-        assigned,
-        createdby  AS "createdBy",
-        createdat  AS "createdAt"
-      FROM cases
-      ORDER BY createdat DESC
-    `);
-    const cases = rows.map(c => ({
+    const { rows } = await pool.query(
+      `SELECT casenum AS "caseNum", status, assigned, createdby AS "createdBy", createdat AS "createdAt"
+       FROM cases ORDER BY createdat DESC`
+    );
+    const formatted = rows.map(c => ({
       ...c,
       createdAt: new Date(c.createdAt).toLocaleString('en-US', { timeZone: 'America/New_York' })
     }));
-    res.render('cases', { title: 'All Cases', cases });
+    res.render('cases', { title: 'All Cases', cases: formatted });
   } catch (e) { console.error(e); res.status(500).send('DB error'); }
 });
 
-// New Case form
+// New Case Form
 app.get('/case/new', ensureAuth, (req, res) => res.render('new', { title: 'New Case' }));
 
-// Create Case
-app.post('/case/new', ensureAuth, upload.array('evidence', 10), async (req, res) => {
-  const { complainant, officer, incidentDate, summary, severity, assigned } = req.body;
-  const files = req.files || [];
+// Create Case (link-based evidence)
+app.post('/case/new', ensureAuth, async (req, res) => {
+  const {
+    complainant,
+    officer,
+    incidentDate,
+    summary,
+    severity,
+    assigned,
+    evidenceLinks
+  } = req.body;
   const now = new Date().toISOString();
-  const stamp = now.slice(0,10).replace(/-/g,'');
+  const stamp = now.slice(0, 10).replace(/-/g, '');
   const prefix = `IA-${stamp}-`;
   try {
-    const { rows } = await pool.query('SELECT COUNT(*)::int AS cnt FROM cases WHERE casenum LIKE $1', [`${prefix}%`]);
-    const seq = String(rows[0].cnt+1).padStart(3,'0');
+    const { rows: countRows } = await pool.query(
+      'SELECT COUNT(*)::int AS cnt FROM cases WHERE casenum LIKE $1',
+      [`${prefix}%`]
+    );
+    const seq = String(countRows[0].cnt + 1).padStart(3, '0');
     const caseNum = `${prefix}${seq}`;
     await pool.query(
-      `INSERT INTO cases
-         (casenum,complainant,officer,incidentdate,summary,severity,assigned,createdby,createdat)
+      `INSERT INTO cases (casenum,complainant,officer,incidentdate,summary,severity,assigned,createdby,createdat)
        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
       [caseNum, complainant, officer, incidentDate, summary, severity, assigned, req.session.user, now]
     );
-    for (const f of files) {
-      const url = `/static/uploads/${f.filename}`;
-      await pool.query('INSERT INTO attachments(casenum,url) VALUES($1,$2)', [caseNum, url]);
-    }
+    (evidenceLinks || '')
+      .split(/\r?\n/)
+      .map(link => link.trim())
+      .filter(link => link)
+      .forEach(async url => {
+        await pool.query(
+          'INSERT INTO attachments(casenum,url) VALUES($1,$2)',
+          [caseNum, url]
+        );
+      });
     res.redirect(`/case/${caseNum}`);
-  } catch (e) { console.error(e); res.status(500).send('Failed to create case'); }
+  } catch (e) {
+    console.error('Failed to create case:', e);
+    res.status(500).send('Failed to create case');
+  }
 });
 
 // View Case
@@ -241,33 +224,28 @@ app.get('/case/:caseNum', ensureAuth, async (req, res) => {
   const cn = req.params.caseNum;
   try {
     const { rows } = await pool.query(
-      `SELECT
-        casenum         AS "caseNum",
-        status,
-        assigned,
-        severity,
-        incidentdate    AS "incidentDate",
-        createdby       AS "createdBy",
-        createdat       AS "createdAt",
-        summary
-      FROM cases WHERE casenum = $1`,
+      `SELECT casenum AS "caseNum", status, assigned, severity,
+         incidentdate AS "incidentDate", createdby AS "createdBy",
+         createdat AS "createdAt", summary
+       FROM cases WHERE casenum=$1`,
       [cn]
     );
     if (!rows[0]) return res.status(404).send('Not found');
     let caseData = rows[0];
-    caseData.incidentDate = new Date(caseData.incidentDate).toLocaleString('en-US',{timeZone:'America/New_York',month:'long',day:'numeric',year:'numeric'});
-    caseData.createdAt    = new Date(caseData.createdAt).toLocaleString('en-US',{timeZone:'America/New_York'});
+    caseData.incidentDate = new Date(caseData.incidentDate).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'long', day: 'numeric', year: 'numeric' });
+    caseData.createdAt = new Date(caseData.createdAt).toLocaleString('en-US', { timeZone: 'America/New_York' });
     let { rows: comments } = await pool.query(
-      `SELECT author,content,createdat AS "createdAt" FROM comments WHERE casenum=$1 ORDER BY createdat`,
+      `SELECT author, content, createdat AS "createdAt"
+       FROM comments WHERE casenum=$1 ORDER BY createdat`,
       [cn]
     );
-    comments = comments.map(c => ({ ...c, createdAt: new Date(c.createdAt).toLocaleString('en-US',{timeZone:'America/New_York'}) }));
-    const { rows: attachments } = await pool.query('SELECT url FROM attachments WHERE casenum=$1',[cn]);
-    res.render('case',{ title:`Case ${cn}`, caseData, comments, attachments });
-  } catch (e) {
-    console.error(e);
-    res.status(500).send('DB error');
-  }
+    comments = comments.map(c => ({
+      ...c,
+      createdAt: new Date(c.createdAt).toLocaleString('en-US', { timeZone: 'America/New_York' })
+    }));
+    const { rows: attachments } = await pool.query('SELECT url FROM attachments WHERE casenum=$1', [cn]);
+    res.render('case', { title: `Case ${cn}`, caseData, comments, attachments });
+  } catch (e) { console.error(e); res.status(500).send('DB error'); }
 });
 
 // Edit Case
@@ -275,36 +253,25 @@ app.get('/case/:caseNum/edit', ensureAuth, async (req, res) => {
   const cn = req.params.caseNum;
   try {
     const { rows } = await pool.query(
-      `SELECT
-         casenum      AS "caseNum",
-         complainant,
-         officer,
-         incidentdate AS "incidentDate",
-         summary,
-         severity,
-         status,
-         assigned
-       FROM cases WHERE casenum = $1`,
+      `SELECT casenum AS "caseNum", complainant, officer,
+         incidentdate AS "incidentDate", summary, severity, status, assigned
+       FROM cases WHERE casenum=$1`,
       [cn]
     );
     const caseData = rows[0]; if (!caseData) return res.status(404).send('Not found');
     caseData.incidentDate = new Date(caseData.incidentDate).toISOString().slice(0,10);
-    res.render('edit',{ title:`Edit Case ${cn}`, caseData });
-  } catch (e) {
-    console.error(e);
-    res.status(500).send('DB error');
-  }
+    res.render('edit', { title: `Edit Case ${cn}`, caseData });
+  } catch (e) { console.error(e); res.status(500).send('DB error'); }
 });
 app.post('/case/:caseNum/edit', ensureAuth, async (req, res) => {
   const cn = req.params.caseNum;
   const { status, assigned, severity } = req.body;
   try {
-    await pool.query('UPDATE cases SET status=$1,assigned=$2,severity=$3 WHERE casenum=$4',[status,assigned,severity,cn]);
+    await pool.query('UPDATE cases SET status=$1,assigned=$2,severity=$3 WHERE casenum=$4',
+      [status, assigned, severity, cn]
+    );
     res.redirect(`/case/${cn}`);
-  } catch (e) {
-    console.error(e);
-    res.status(500).send('Update error');
-  }
+  } catch (e) { console.error(e); res.status(500).send('Update error'); }
 });
 
 // Add Comment
@@ -313,19 +280,18 @@ app.post('/case/:caseNum/comment', ensureAuth, async (req, res) => {
   const content = req.body.comment;
   const now = new Date().toISOString();
   try {
-    await pool.query('INSERT INTO comments(casenum,author,content,createdat) VALUES($1,$2,$3,$4)',[cn,req.session.user,content,now]);
+    await pool.query('INSERT INTO comments(casenum,author,content,createdat) VALUES($1,$2,$3,$4)',
+      [cn, req.session.user, content, now]
+    );
     res.redirect(`/case/${cn}`);
-  } catch (e) {
-    console.error(e);
-    res.status(500).send('Comment error');
-  }
+  } catch (e) { console.error(e); res.status(500).send('Comment error'); }
 });
 
 // Export PDF
 app.get('/case/:caseNum/export', ensureAuth, async (req, res) => {
   const cn = req.params.caseNum;
-  res.setHeader('Content-Type','application/pdf');
-  res.setHeader('Content-Disposition',`attachment; filename="BCSO_IA_Case_${cn}.pdf"`);
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="BCSO_IA_Case_${cn}.pdf"`);
   const doc = new PDFDocument({ size: 'LETTER', margin: 50 }); doc.pipe(res);
   try {
     const { rows: caseRows } = await pool.query('SELECT * FROM cases WHERE casenum=$1',[cn]);
@@ -338,7 +304,7 @@ app.get('/case/:caseNum/export', ensureAuth, async (req, res) => {
       .moveDown(0.2).fillColor('black').fontSize(14)
       .text('Internal Affairs Case Report',{align:'center'})
       .moveDown(0.3).strokeColor('#CC0000').lineWidth(2)
-      .moveTo(50, doc.y).lineTo(doc.page.width-50,doc.y).stroke();
+      .moveTo(50,doc.y).lineTo(doc.page.width-50,doc.y).stroke();
     doc.moveDown(); const labelOpts={width:120,continued:true}; const valueOpts={width:doc.page.width-200};
     doc
       .font('Helvetica-Bold').fontSize(12).fillColor('black')
@@ -363,9 +329,7 @@ app.get('/case/:caseNum/export', ensureAuth, async (req, res) => {
         .text('Attachments',{underline:true})
         .moveDown(0.3)
         .fillColor('black').font('Helvetica').fontSize(11);
-      atts.forEach((a,i)=>{
-        doc.text(`${i+1}. ${a.url}`,{link:a.url,underline:true});
-      });
+      atts.forEach((a,i)=>doc.text(`${i+1}. ${a.url}`,{link:a.url,underline:true}));
     }
     const { rows: coms } = await pool.query('SELECT author,content,createdat FROM comments WHERE casenum=$1 ORDER BY createdat',[cn]);
     if (coms.length) {
@@ -387,7 +351,7 @@ app.get('/case/:caseNum/export', ensureAuth, async (req, res) => {
 });
 
 // Heartbeat
-app.get('/heartbeat', (req, res) => res.sendStatus(200));
+app.get('/heartbeat',(req,res)=>res.sendStatus(200));
 
 // Start Server
-app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
+app.listen(PORT,()=>console.log(`Running on http://localhost:${PORT}`));
