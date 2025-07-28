@@ -1,25 +1,37 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title><%= title %> - Blaine County Sheriff's Office IA Dashboard</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title><%= title %> – IA Dashboard</title>
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
+
 <body class="bg-gray-100 text-gray-900">
 
-  <!-- Dark‐Red Header -->
-  <header class="bg-red-900 text-white shadow-md">
-    <div class="max-w-6xl mx-auto flex justify-between items-center py-4 px-6">
-      <h1 class="text-2xl font-extrabold tracking-widest">IA Dashboard</h1>
+  <!-- Header with Logo -->
+  <header class="bg-red-900 text-white shadow-lg">
+    <div class="max-w-6xl mx-auto flex items-center justify-between py-4 px-6">
+      
+      <!-- Logo + Title -->
+      <a href="/" class="flex items-center space-x-3">
+        <img
+          src="/images/logo.png"
+          alt="BCSO Logo"
+          class="h-10 w-auto rounded-full shadow-md"
+        />
+        <span class="text-2xl font-extrabold tracking-wide">IA Dashboard</span>
+      </a>
+      
+      <!-- Nav Links -->
       <% if (session.user) { %>
         <nav class="space-x-6">
-          <a href="/" class="hover:text-red-300 transition-colors">Dashboard</a>
+          <a href="/"         class="hover:text-red-300 transition-colors">Dashboard</a>
           <a href="/case/new" class="hover:text-red-300 transition-colors">New Case</a>
           <% if (session.role === 'admin') { %>
             <a href="/admin/users" class="hover:text-red-300 transition-colors">Users</a>
           <% } %>
-          <a href="/logout" class="hover:text-red-300 transition-colors">Logout</a>
+          <a href="/logout"    class="hover:text-red-300 transition-colors">Logout</a>
         </nav>
       <% } %>
     </div>
@@ -30,9 +42,9 @@
     <%- body %>
   </main>
 
-  <!-- Optional Footer (same red accent) -->
+  <!-- Footer -->
   <footer class="bg-red-800 text-white text-center text-sm py-4 mt-12">
-    © 2025 JRP | Blaine County Sheriff’s Office • Internal Affairs
+    © 2025 Blaine County Sheriff’s Office • Internal Affairs
   </footer>
 
 </body>
