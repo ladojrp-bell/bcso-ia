@@ -224,6 +224,15 @@ app.get('/cases', ensureAuth, (req, res) => {
     if (err) return res.status(500).send('DB error');
     res.render('cases', { title: 'All Cases', cases: rows });
   });
+  
+  // ← Add this GET handler immediately below:
+app.get('/case/new', ensureAuth, (req, res) => {
+  res.render('new', { title: 'New Case' });
+});
+
+// New Case (POST)
+app.post('/case/new', ensureAuth, upload.array('evidence', 10), (req, res) => {
+  // …
 });
 
 // New Case
