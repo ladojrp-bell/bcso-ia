@@ -224,8 +224,9 @@ app.get('/cases', ensureAuth, (req, res) => {
     if (err) return res.status(500).send('DB error');
     res.render('cases', { title: 'All Cases', cases: rows });
   });
-  
-  // ← Add this GET handler immediately below:
+});  // ←–– This closes the app.get('/cases', …) block
+
+// Show “New Case” form
 app.get('/case/new', ensureAuth, (req, res) => {
   res.render('new', { title: 'New Case' });
 });
