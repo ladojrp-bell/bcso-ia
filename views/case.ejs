@@ -17,7 +17,11 @@
   <h2 class="text-xl font-semibold">Attachments</h2>
   <ul class="list-disc list-inside mb-4">
     <% attachments.forEach(a => { %>
-      <li><a href="<%= a.url %>" target="_blank"><%= a.url.split('/').pop() %></a></li>
+      <li>
+        <a href="<%= a.url %>" target="_blank">
+          <%= a.url.split('/').pop() %>
+        </a>
+      </li>
     <% }) %>
   </ul>
 <% } %>
@@ -26,25 +30,26 @@
 <ul class="space-y-2">
   <% comments.forEach(c => { %>
     <li class="border p-2 rounded">
-      <p><strong><%= c.author %></strong> 
-         <em><%= new Date(c.createdAt).toLocaleString() %></em>
+      <p>
+        <strong><%= c.author %></strong>
+        <em><%= new Date(c.createdAt).toLocaleString() %></em>
       </p>
       <p><%= c.content %></p>
     </li>
   <% }) %>
 </ul>
 
-<div class="mt-6">
+<div class="mt-6 flex space-x-2">
   <a href="/case/<%= caseData.caseNum %>/edit"
      class="px-4 py-2 bg-yellow-500 text-white rounded">
     ✏️ Edit Case
   </a>
   <a href="/case/<%= caseData.caseNum %>/export"
-     class="px-4 py-2 bg-green-600 text-white rounded ml-2">
+     class="px-4 py-2 bg-green-600 text-white rounded">
     📄 Export PDF
   </a>
   <a href="/cases"
-     class="px-4 py-2 bg-gray-400 text-white rounded ml-2">
+     class="px-4 py-2 bg-gray-400 text-white rounded">
     ← Back to All Cases
   </a>
 </div>
