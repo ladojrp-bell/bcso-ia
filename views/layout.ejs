@@ -7,23 +7,33 @@
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-gray-100 text-gray-900">
-  <header class="bg-blue-900 text-white py-4">
-    <div class="container mx-auto flex justify-between items-center px-6">
-      <h1 class="text-xl font-bold">IA Dashboard</h1>
+
+  <!-- Dark‐Red Header -->
+  <header class="bg-red-900 text-white shadow-md">
+    <div class="max-w-6xl mx-auto flex justify-between items-center py-4 px-6">
+      <h1 class="text-2xl font-extrabold tracking-widest">IA Dashboard</h1>
       <% if (session.user) { %>
-        <nav class="space-x-4">
-          <a href="/" class="hover:underline">Dashboard</a>
-          <a href="/case/new" class="hover:underline">New Case</a>
+        <nav class="space-x-6">
+          <a href="/" class="hover:text-red-300 transition-colors">Dashboard</a>
+          <a href="/case/new" class="hover:text-red-300 transition-colors">New Case</a>
           <% if (session.role === 'admin') { %>
-            <a href="/admin/users" class="hover:underline">Users</a>
+            <a href="/admin/users" class="hover:text-red-300 transition-colors">Users</a>
           <% } %>
-          <a href="/logout" class="hover:underline">Logout</a>
+          <a href="/logout" class="hover:text-red-300 transition-colors">Logout</a>
         </nav>
       <% } %>
     </div>
   </header>
-  <main class="container mx-auto p-6">
+
+  <!-- Main Content -->
+  <main class="max-w-6xl mx-auto p-6">
     <%- body %>
   </main>
+
+  <!-- Optional Footer (same red accent) -->
+  <footer class="bg-red-800 text-white text-center text-sm py-4 mt-12">
+    © 2025 Blaine County Sheriff’s Office • Internal Affairs
+  </footer>
+
 </body>
 </html>
