@@ -1,11 +1,11 @@
-<h1 class="text-2xl font-semibold mb-4">Case <%= caseData.casenum %></h1>
+<h1 class="text-2xl font-semibold mb-4">Case <%= caseData.caseNum %></h1>
 
 <p><strong>Status:</strong> <%= caseData.status %></p>
 <p><strong>Assigned To:</strong> <%= caseData.assigned || '—' %></p>
 <p><strong>Severity:</strong> <%= caseData.severity %></p>
-<p><strong>Date:</strong> <%= caseData.incidentdate %></p>
-<p><strong>Created By:</strong> <%= caseData.createdby %> at 
-   <%= new Date(caseData.createdat).toLocaleString() %>
+<p><strong>Date:</strong> <%= caseData.incidentDate %></p>
+<p><strong>Created By:</strong> <%= caseData.createdBy %> at 
+   <%= new Date(caseData.createdAt).toLocaleString() %>
 </p>
 
 <hr class="my-4">
@@ -17,7 +17,11 @@
   <h2 class="text-xl font-semibold">Attachments</h2>
   <ul class="list-disc list-inside mb-4">
     <% attachments.forEach(a => { %>
-      <li><a href="<%= a.url %>" target="_blank"><%= a.url.split('/').pop() %></a></li>
+      <li>
+        <a href="<%= a.url %>" target="_blank">
+          <%= a.url.split('/').pop() %>
+        </a>
+      </li>
     <% }) %>
   </ul>
 <% } %>
@@ -28,7 +32,7 @@
     <li class="border p-2 rounded">
       <p>
         <strong><%= c.author %></strong>
-        <em><%= new Date(c.createdat).toLocaleString() %></em>
+        <em><%= new Date(c.createdAt).toLocaleString() %></em>
       </p>
       <p><%= c.content %></p>
     </li>
@@ -36,11 +40,11 @@
 </ul>
 
 <div class="mt-6 flex space-x-2">
-  <a href="/case/<%= caseData.casenum %>/edit"
+  <a href="/case/<%= caseData.caseNum %>/edit"
      class="px-4 py-2 bg-yellow-500 text-white rounded">
     ✏️ Edit Case
   </a>
-  <a href="/case/<%= caseData.casenum %>/export"
+  <a href="/case/<%= caseData.caseNum %>/export"
      class="px-4 py-2 bg-green-600 text-white rounded">
     📄 Export PDF
   </a>
@@ -53,7 +57,7 @@
 <hr class="my-6">
 
 <h3 class="text-lg font-semibold mb-2">Add a Comment</h3>
-<form action="/case/<%= caseData.casenum %>/comment" method="POST" class="space-y-2">
+<form action="/case/<%= caseData.caseNum %>/comment" method="POST" class="space-y-2">
   <textarea name="comment" rows="3" required
     class="w-full border p-2 rounded"></textarea>
   <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded">
