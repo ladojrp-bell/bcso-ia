@@ -303,45 +303,44 @@ app.post('/case/:caseNum/comment', ensureAuth, (req, res) => {
 // Export PDF (with Comments & Change History)
 app.get('/case/:caseNum/export', ensureAuth, (req, res) => {
   const cn = req.params.caseNum;
+
+  // Set headers
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader(
+    'Content-Disposition',
+    `attachment; filename="BCSO_IA_Case_${cn}.pdf"`
+  );
+
+  const doc = new PDFDocument({ size: 'LETTER', margin: 50 });
+  doc.pipe(res);
+  function finish() { if (!doc._ending) doc.end(); }
+
+  // 1) Fetch case record
   db.get('SELECT * FROM cases WHERE caseNum = ?', [cn], (err, row) => {
-    if (err || !row) return res.status(404).send('Case not found');
+    if (err || !row) {
+      res.status(404).send('Case not found');
+      return finish();
+    }
 
-    // Response headers
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename="BCSO_IA_Case_${cn}.pdf"`
-    );
-
-    // Create PDF
-    const doc = new PDFDocument({ size: 'LETTER', margin: 50 });
-    doc.pipe(res);
-
-    // ── HEADER ───────────────────────────────────────────────────────────────
+    // HEADER
     const badgePath = path.join(__dirname, 'public', 'images', 'badge.png');
     if (fs.existsSync(badgePath)) {
       doc.image(badgePath, doc.page.width - 110, 20, { width: 60 });
     }
     doc
-      .fillColor('#228B22') // forest green
-      .font('Helvetica-Bold').fontSize(18)
+      .fillColor('#228B22').font('Helvetica-Bold').fontSize(18)
       .text("Blaine County Sheriff's Office", { align: 'center' })
       .moveDown(0.2)
-      .fillColor('black')
-      .fontSize(14)
+      .fillColor('black').fontSize(14)
       .text('Internal Affairs Case Report', { align: 'center' })
       .moveDown(0.3)
-      .strokeColor('#CC0000') // red accent
-      .lineWidth(2)
-      .moveTo(50, doc.y)
-      .lineTo(doc.page.width - 50, doc.y)
-      .stroke();
+      .strokeColor('#CC0000').lineWidth(2)
+      .moveTo(50, doc.y).lineTo(doc.page.width - 50, doc.y).stroke();
 
-    // ── METADATA ─────────────────────────────────────────────────────────────
+    // METADATA
     doc.moveDown();
     const labelOpts = { width: 120, continued: true };
     const valueOpts = { width: doc.page.width - 200 };
-
     doc
       .font('Helvetica-Bold').fontSize(12).fillColor('black')
       .text('Case Number:', labelOpts).font('Helvetica').text(row.caseNum, valueOpts)
@@ -351,89 +350,61 @@ app.get('/case/:caseNum/export', ensureAuth, (req, res) => {
       .font('Helvetica-Bold').text('Officer:', labelOpts).font('Helvetica').text(row.officer, valueOpts)
       .moveDown(0.2)
       .font('Helvetica-Bold').text('Date of Incident:', labelOpts).font('Helvetica').text(row.incidentDate, valueOpts)
-      .font('Helvetica-Bold').text('Assigned To:', labelOpts).font('Helvetica').text(row.assigned || 'Unassigned', valueOpts);
+      .font('Helvetica-Bold').text('Assigned To:', labelOpts).font('Helvetica').text(row.assigned||'Unassigned', valueOpts);
 
-    // ── SUMMARY ──────────────────────────────────────────────────────────────
+    // SUMMARY
     doc.moveDown(1)
-      .fillColor('#CC0000') // red accent
-      .font('Helvetica-Bold').fontSize(13)
+      .fillColor('#CC0000').font('Helvetica-Bold').fontSize(13)
       .text('Summary', { underline: true })
       .moveDown(0.3)
-      .fillColor('black')
-      .font('Helvetica').fontSize(11)
+      .fillColor('black').font('Helvetica').fontSize(11)
       .text(row.summary, { align: 'justify' });
 
-    // ── ATTACHMENTS ──────────────────────────────────────────────────────────
-    db.all('SELECT url FROM attachments WHERE caseNum = ?', [cn], (err2, atts) => {
-      if (atts.length) {
+    // ATTACHMENTS → COMMENTS → HISTORY
+    db.all('SELECT url FROM attachments WHERE caseNum = ?', [cn], (e2, atts) => {
+      if (!e2 && atts.length) {
         doc.moveDown(0.8)
-          .fillColor('#CC0000')
-          .font('Helvetica-Bold').fontSize(13)
+          .fillColor('#CC0000').font('Helvetica-Bold').fontSize(13)
           .text('Attachments', { underline: true })
           .moveDown(0.3)
-          .fillColor('black')
-          .font('Helvetica').fontSize(11);
-        atts.forEach((a,i) => {
-          doc.text(`${i+1}. ${a.url}`, { link: a.url, underline: true });
-        });
+          .fillColor('black').font('Helvetica').fontSize(11);
+        atts.forEach((a,i)=> doc.text(`${i+1}. ${a.url}`, { link: a.url, underline: true }));
       }
 
-      // ── COMMENTS ─────────────────────────────────────────────────────────
-      db.all(
-        'SELECT author, content, createdAt FROM comments WHERE caseNum = ? ORDER BY createdAt',
-        [cn],
-        (err3, comments) => {
-          if (comments.length) {
-            doc.addPage();
-            doc
-              .fillColor('#CC0000')
-              .font('Helvetica-Bold').fontSize(13)
-              .text('Comments', { underline: true })
+      db.all('SELECT author,content,createdAt FROM comments WHERE caseNum = ? ORDER BY createdAt',[cn],(e3,comments)=>{
+        if (!e3 && comments.length) {
+          doc.addPage()
+            .fillColor('#CC0000').font('Helvetica-Bold').fontSize(13)
+            .text('Comments', { underline: true })
+            .moveDown(0.3)
+            .fillColor('black').font('Helvetica').fontSize(11);
+          comments.forEach(c=>{
+            const ts=new Date(c.createdAt).toLocaleString();
+            doc.font('Helvetica-Bold').text(`${c.author} @ ${ts}`)
+               .moveDown(0.1)
+               .font('Helvetica').text(c.content, { indent: 20 })
+               .moveDown(0.5);
+          });
+        }
+
+        db.all('SELECT field,oldValue,newValue,changedBy,changedAt FROM history WHERE caseNum = ? ORDER BY changedAt',[cn],(e4,hist)=>{
+          if (!e4 && hist.length) {
+            doc.addPage()
+              .fillColor('#CC0000').font('Helvetica-Bold').fontSize(13)
+              .text('Change History', { underline: true })
               .moveDown(0.3)
-              .fillColor('black')
-              .font('Helvetica').fontSize(11);
-            comments.forEach(c => {
-              const ts = new Date(c.createdAt).toLocaleString();
-              doc
-                .font('Helvetica-Bold')
-                .text(`${c.author} @ ${ts}`)
-                .moveDown(0.1)
-                .font('Helvetica')
-                .text(c.content, { indent: 20 })
-                .moveDown(0.5);
+              .fillColor('black').font('Helvetica').fontSize(11);
+            hist.forEach(h=>{
+              const ts=new Date(h.changedAt).toLocaleString();
+              doc.font('Helvetica-Bold').text(`${h.field} changed by ${h.changedBy} @ ${ts}`)
+                 .moveDown(0.1)
+                 .font('Helvetica').text(`from "${h.oldValue}" to "${h.newValue}"`, { indent: 20 })
+                 .moveDown(0.5);
             });
           }
-
-          // ── CHANGE HISTORY ─────────────────────────────────────────────────
-          db.all(
-            'SELECT field, oldValue, newValue, changedBy, changedAt FROM history WHERE caseNum = ? ORDER BY changedAt',
-            [cn],
-            (err4, hist) => {
-              if (hist.length) {
-                doc.addPage();
-                doc
-                  .fillColor('#CC0000')
-                  .font('Helvetica-Bold').fontSize(13)
-                  .text('Change History', { underline: true })
-                  .moveDown(0.3)
-                  .fillColor('black')
-                  .font('Helvetica').fontSize(11);
-                hist.forEach(h => {
-                  const ts = new Date(h.changedAt).toLocaleString();
-                  doc
-                    .font('Helvetica-Bold')
-                    .text(`${h.field} changed by ${h.changedBy} @ ${ts}`)
-                    .moveDown(0.1)
-                    .font('Helvetica')
-                    .text(`from "${h.oldValue}" to "${h.newValue}"`, { indent: 20 })
-                    .moveDown(0.5);
-                });
-              }
-              doc.end();
-            }
-          );
-        }
-      );
+          finish();
+        });
+      });
     });
   });
 });
