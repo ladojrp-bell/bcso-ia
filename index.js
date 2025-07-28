@@ -1,20 +1,20 @@
 require('dotenv').config();
-const express         = require('express');
-const expressLayouts  = require('express-ejs-layouts');
-const session         = require('express-session');
-const bodyParser      = require('body-parser');
+const express = require('express');
+const expressLayouts = require('express-ejs-layouts');
+const session = require('express-session');
+const bodyParser = require('body-parser');
 const { Client, Intents } = require('discord.js');
-const { REST }        = require('@discordjs/rest');
-const { Routes }      = require('discord-api-types/v9');
-const sqlite3         = require('sqlite3').verbose();
-const bcrypt          = require('bcrypt');
-const multer          = require('multer');
-const path            = require('path');
-const fs              = require('fs');
-const PDFDocument     = require('pdfkit');
+const { REST } = require('@discordjs/rest');
+const { Routes } = require('discord-api-types/v9');
+const { Pool } = require('pg');
+const bcrypt = require('bcrypt');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+const PDFDocument = require('pdfkit');
 
-const app   = express();
-const PORT  = process.env.PORT || 3000;
+const app = express();
+const PORT = process.env.PORT || 3000;
 
 // ─── View Engine & Layouts ────────────────────────────────────────────────────
 app.set('view engine', 'ejs');
@@ -27,18 +27,15 @@ app.use(bodyParser.urlencoded({ extended: false }));
 app.use(session({ secret: 'ia_secret', resave: false, saveUninitialized: false }));
 app.use('/static', express.static(path.join(__dirname, 'public')));
 app.use('/images', express.static(path.join(__dirname, 'images')));
-app.use((req, res, next) => {
-  res.locals.session = req.session;
-  next();
-});
+app.use((req, res, next) => { res.locals.session = req.session; next(); });
 
 // ─── Configuration ─────────────────────────────────────────────────────────────
 const config = {
-  token:            process.env.BOT_TOKEN,
-  clientId:         process.env.CLIENT_ID,
-  guildId:          process.env.GUILD_ID,
-  dashboardUrl:     process.env.DASHBOARD_URL || 'https://ia-dashboard.example.com',
-  dashboardAdmin:   process.env.DASHBOARD_USER,
+  token: process.env.BOT_TOKEN,
+  clientId: process.env.CLIENT_ID,
+  guildId: process.env.GUILD_ID,
+  dashboardUrl: process.env.DASHBOARD_URL || 'https://ia-dashboard.example.com',
+  dashboardAdmin: process.env.DASHBOARD_USER,
   dashboardAdminPass: process.env.DASHBOARD_PASS,
 };
 
@@ -49,18 +46,14 @@ const storage = multer.diskStorage({
     fs.mkdirSync(dir, { recursive: true });
     cb(null, dir);
   },
-  filename: (req, file, cb) => {
-    cb(null, `${Date.now()}_${file.originalname}`);
-  }
+  filename: (req, file, cb) => cb(null, `${Date.now()}_${file.originalname}`)
 });
 const upload = multer({ storage });
 
 // ─── Discord Bot Setup ────────────────────────────────────────────────────────
 const discordClient = new Client({ intents: [Intents.FLAGS.GUILDS] });
 (async () => {
-  const commands = [
-    { name: 'ia-dashboard', description: 'Get IA Dashboard link' }
-  ];
+  const commands = [{ name: 'ia-dashboard', description: 'Get IA Dashboard link' }];
   await new REST({ version: '9' })
     .setToken(config.token)
     .put(Routes.applicationGuildCommands(config.clientId, config.guildId), { body: commands });
@@ -71,88 +64,72 @@ discordClient.on('interactionCreate', async interaction => {
 });
 discordClient.login(config.token);
 
-// ─── SQLite Database Setup ────────────────────────────────────────────────────
-const db = new sqlite3.Database('./ia.db', err => {
-  if (err) console.error('DB Open Error:', err);
+// ─── Postgres Setup ───────────────────────────────────────────────────────────
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false }
 });
-db.serialize(() => {
-  db.run(`
+
+// ─── Initialize Tables & Seed Admins ───────────────────────────────────────────
+;(async () => {
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS cases (
-      id INTEGER PRIMARY KEY,
+      id SERIAL PRIMARY KEY,
       caseNum TEXT UNIQUE,
       complainant TEXT,
       officer TEXT,
-      incidentDate TEXT,
+      incidentDate DATE,
       summary TEXT,
       severity TEXT,
       status TEXT DEFAULT 'Open',
       assigned TEXT,
       createdBy TEXT,
-      createdAt TEXT
-    )
+      createdAt TIMESTAMPTZ
+    );
   `);
-  db.run(`
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS comments (
-      id INTEGER PRIMARY KEY,
+      id SERIAL PRIMARY KEY,
       caseNum TEXT,
       author TEXT,
       content TEXT,
-      createdAt TEXT
-    )
+      createdAt TIMESTAMPTZ
+    );
   `);
-  db.run(`
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS attachments (
-      id INTEGER PRIMARY KEY,
+      id SERIAL PRIMARY KEY,
       caseNum TEXT,
       url TEXT
-    )
+    );
   `);
-  db.run(`
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY,
+      id SERIAL PRIMARY KEY,
       username TEXT UNIQUE,
       passwordHash TEXT,
       role TEXT DEFAULT 'user'
-    )
+    );
   `);
 
   // Seed configured admin
-  db.get(
-    'SELECT COUNT(*) AS cnt FROM users WHERE username = ?',
-    [config.dashboardAdmin],
-    (err, row) => {
-      if (!err && row.cnt === 0) {
-        const hash = bcrypt.hashSync(config.dashboardAdminPass, 10);
-        db.run(
-          'INSERT INTO users (username, passwordHash, role) VALUES (?, ?, ?)',
-          [config.dashboardAdmin, hash, 'admin']
-        );
-      }
-    }
+  const adminHash = bcrypt.hashSync(config.dashboardAdminPass, 10);
+  await pool.query(
+    `INSERT INTO users(username,passwordHash,role)
+     SELECT $1,$2,'admin'
+     WHERE NOT EXISTS (SELECT 1 FROM users WHERE username=$1);`,
+    [config.dashboardAdmin, adminHash]
   );
 
-  // Force‑seed bcsointernal admin
-  const forceUser = 'bcsointernal';
-  const forcePass = 'casesia2236';
-  const forceHash = bcrypt.hashSync(forcePass, 10);
-  db.get(
-    'SELECT COUNT(*) AS cnt FROM users WHERE username = ?',
-    [forceUser],
-    (err, row) => {
-      if (!err && row.cnt === 0) {
-        db.run(
-          'INSERT INTO users (username, passwordHash, role) VALUES (?, ?, ?)',
-          [forceUser, forceHash, 'admin']
-        );
-      } else {
-        db.run(
-          'UPDATE users SET role = ?, passwordHash = ? WHERE username = ?',
-          ['admin', forceHash, forceUser]
-        );
-      }
-    }
+  // Force-seed bcsointernal
+  const bcsoHash = bcrypt.hashSync('casesia2236', 10);
+  await pool.query(
+    `INSERT INTO users(username,passwordHash,role)
+     SELECT $1,$2,'admin'
+     WHERE NOT EXISTS (SELECT 1 FROM users WHERE username=$1);`,
+    ['bcsointernal', bcsoHash]
   );
-});
+})();
 
 // ─── Auth Middleware ──────────────────────────────────────────────────────────
 function ensureAuth(req, res, next) {
@@ -166,296 +143,245 @@ function ensureAdmin(req, res, next) {
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
 
-// Root: redirect to /cases or /login
+// Root: redirect
 app.get('/', (req, res) => {
-  if (req.session.user) return res.redirect('/cases');
-  res.redirect('/login');
+  if (req.session.user) res.redirect('/cases');
+  else res.redirect('/login');
 });
 
 // Login
-app.get('/login', (req, res) => {
-  res.render('login', { title: 'Login', error: null });
-});
-app.post('/login', (req, res) => {
+app.get('/login', (req, res) => res.render('login', { title: 'Login', error: null }));
+app.post('/login', async (req, res) => {
   const { username, password } = req.body;
-  db.get('SELECT * FROM users WHERE username = ?', [username], (err, user) => {
-    if (err || !user || !bcrypt.compareSync(password, user.passwordHash)) {
+  try {
+    const { rows } = await pool.query('SELECT * FROM users WHERE username=$1', [username]);
+    const user = rows[0];
+    if (!user || !bcrypt.compareSync(password, user.passwordhash)) {
       return res.render('login', { title: 'Login', error: 'Invalid credentials' });
     }
     req.session.user = user.username;
     req.session.role = user.role;
     res.redirect('/');
-  });
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Server error');
+  }
 });
 
 // Logout
-app.get('/logout', (req, res) => {
-  req.session.destroy(() => res.redirect('/login'));
-});
+app.get('/logout', (req, res) => req.session.destroy(() => res.redirect('/login')));
 
-// ─── User Management (Admin only) ────────────────────────────────────────────
-app.get('/admin/users', ensureAuth, ensureAdmin, (req, res) => {
-  db.all('SELECT id, username, role FROM users', [], (err, users) => {
-    if (err) return res.status(500).send('DB error');
+// Manage Users
+app.get('/admin/users', ensureAuth, ensureAdmin, async (req, res) => {
+  try {
+    const { rows: users } = await pool.query('SELECT id,username,role FROM users');
     res.render('users', { title: 'Manage Users', users });
-  });
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('DB error');
+  }
 });
-
-app.post('/admin/users/add', ensureAuth, ensureAdmin, (req, res) => {
+app.post('/admin/users/add', ensureAuth, ensureAdmin, async (req, res) => {
   const { username, password, role } = req.body;
   const hash = bcrypt.hashSync(password, 10);
-  db.run(
-    'INSERT INTO users (username, passwordHash, role) VALUES (?, ?, ?)',
-    [username, hash, role||'user'],
-    err => {
-      if (err) return res.status(500).send('Insert error');
-      res.redirect('/admin/users');
-    }
-  );
-});
-
-app.post('/admin/users/:id/delete', ensureAuth, ensureAdmin, (req, res) => {
-  db.run('DELETE FROM users WHERE id = ?', [req.params.id], err => {
-    if (err) return res.status(500).send('Delete error');
+  try {
+    await pool.query('INSERT INTO users(username,passwordhash,role) VALUES($1,$2,$3)',
+                     [username, hash, role||'user']);
     res.redirect('/admin/users');
-  });
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Insert error');
+  }
+});
+app.post('/admin/users/:id/delete', ensureAuth, ensureAdmin, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM users WHERE id=$1', [req.params.id]);
+    res.redirect('/admin/users');
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Delete error');
+  }
 });
 
 // List Cases
-app.get('/cases', ensureAuth, (req, res) => {
-  db.all('SELECT * FROM cases ORDER BY createdAt DESC', [], (err, rows) => {
-    if (err) return res.status(500).send('DB error');
+app.get('/cases', ensureAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM cases ORDER BY createdat DESC');
     res.render('cases', { title: 'All Cases', cases: rows });
-  });
-});  // ←–– This closes the app.get('/cases', …) block
-
-// DEBUG: show raw cases JSON
-app.get('/debug/cases', ensureAuth, (req, res) => {
-  db.all('SELECT * FROM cases ORDER BY createdAt DESC', [], (err, rows) => {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json(rows);
-  });
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('DB error');
+  }
 });
 
-// Show “New Case” form
-app.get('/case/new', ensureAuth, (req, res) => {
-  res.render('new', { title: 'New Case' });
-});
+// New Case form
+app.get('/case/new', ensureAuth, (req, res) => res.render('new', { title: 'New Case' }));
 
-// New Case
-app.post('/case/new', ensureAuth, upload.array('evidence', 10), (req, res) => {
+// Create Case
+app.post('/case/new', ensureAuth, upload.array('evidence', 10), async (req, res) => {
   const { complainant, officer, incidentDate, summary, severity, assigned } = req.body;
   const files = req.files || [];
-
-  // Build a YYYYMMDD stamp from today
-  const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-  const prefix = `IA-${stamp}-`;        // e.g. "IA-20250728-"
-
-  // Count how many existing caseNums start with that prefix
-  db.get(
-    'SELECT COUNT(*) AS cnt FROM cases WHERE caseNum LIKE ?',
-    [`${prefix}%`],
-    (err, row) => {
-      if (err) {
-        console.error('Error counting cases:', err);
-        return res.status(500).send('Server error');
-      }
-
-      // New case number, sequence = current count + 1
-      const seq = String(row.cnt + 1).padStart(3, '0');
-      const caseNum = `${prefix}${seq}`;  // e.g. "IA-20250728-002"
-      const now = new Date().toISOString();
-
-      // Insert the new case record
-      db.run(
-        `INSERT INTO cases
-          (caseNum, complainant, officer, incidentDate, summary,
-           severity, assigned, createdBy, createdAt)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [caseNum, complainant, officer, incidentDate,
-         summary, severity, assigned, req.session.user, now],
-        err2 => {
-          if (err2) {
-            console.error('Error inserting case:', err2);
-            return res.status(500).send('Failed to create case');
-          }
-
-          // Insert any uploaded attachments
-          files.forEach(f => {
-            const url = `/static/uploads/${f.filename}`;
-            db.run(
-              'INSERT INTO attachments(caseNum, url) VALUES(?, ?)',
-              [caseNum, url],
-              err3 => {
-                if (err3) console.error('Error saving attachment:', err3);
-              }
-            );
-          });
-
-          // Redirect to the newly created case
-          res.redirect(`/case/${caseNum}`);
-        }
-      );
+  const now = new Date().toISOString();
+  const stamp = now.slice(0, 10).replace(/-/g, '');
+  const prefix = `IA-${stamp}-`;
+  try {
+    const { rows } = await pool.query(
+      'SELECT COUNT(*)::int AS cnt FROM cases WHERE casenum LIKE $1',
+      [`${prefix}%`]
+    );
+    const seq = String(rows[0].cnt + 1).padStart(3, '0');
+    const caseNum = `${prefix}${seq}`;
+    await pool.query(
+      `INSERT INTO cases(casenum,complainant,officer,incidentdate,summary,
+                          severity,assigned,createdby,createdat)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [caseNum, complainant, officer, incidentDate,
+       summary, severity, assigned, req.session.user, now]
+    );
+    for (const f of files) {
+      const url = `/static/uploads/${f.filename}`;
+      await pool.query('INSERT INTO attachments(casenum,url) VALUES($1,$2)', [caseNum, url]);
     }
-  );
+    res.redirect(`/case/${caseNum}`);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to create case');
+  }
 });
 
 // View Case
-app.get('/case/:caseNum', ensureAuth, (req, res) => {
-  const cn = req.params.caseNum;
-  db.get('SELECT * FROM cases WHERE caseNum = ?', [cn], (e, caseData) => {
+app.get('/case/:caseNum', ensureAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM cases WHERE casenum=$1', [req.params.caseNum]);
+    const caseData = rows[0];
     if (!caseData) return res.status(404).send('Not found');
-    db.all('SELECT * FROM comments WHERE caseNum = ? ORDER BY createdAt', [cn], (e2, comments) => {
-      db.all('SELECT url FROM attachments WHERE caseNum = ?', [cn], (e3, attachments) => {
-        res.render('case', { title: `Case ${cn}`, caseData, comments, attachments });
-      });
-    });
-  });
+    const { rows: comments } = await pool.query(
+      'SELECT * FROM comments WHERE casenum=$1 ORDER BY createdat', [req.params.caseNum]
+    );
+    const { rows: attachments } = await pool.query(
+      'SELECT url FROM attachments WHERE casenum=$1', [req.params.caseNum]
+    );
+    res.render('case', { title: `Case ${req.params.caseNum}`, caseData, comments, attachments });
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('DB error');
+  }
 });
 
 // Edit Case
-app.get('/case/:caseNum/edit', ensureAuth, (req, res) => {
-  const cn = req.params.caseNum;
-  db.get('SELECT * FROM cases WHERE caseNum = ?', [cn], (err, caseData) => {
-    if (err || !caseData) return res.status(404).send('Case not found');
-    res.render('edit', { title: `Edit Case ${cn}`, caseData });
-  });
+app.get('/case/:caseNum/edit', ensureAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM cases WHERE casenum=$1', [req.params.caseNum]);
+    const caseData = rows[0];
+    if (!caseData) return res.status(404).send('Case not found');
+    res.render('edit', { title: `Edit Case ${req.params.caseNum}`, caseData });
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('DB error');
+  }
 });
-app.post('/case/:caseNum/edit', ensureAuth, (req, res) => {
+app.post('/case/:caseNum/edit', ensureAuth, async (req, res) => {
   const cn = req.params.caseNum;
   const { status, assigned, severity } = req.body;
-  db.run(
-    'UPDATE cases SET status = ?, assigned = ?, severity = ? WHERE caseNum = ?',
-    [status, assigned, severity, cn],
-    () => res.redirect(`/case/${cn}`)
-  );
+  try {
+    await pool.query(
+      'UPDATE cases SET status=$1, assigned=$2, severity=$3 WHERE casenum=$4',
+      [status, assigned, severity, cn]
+    );
+    res.redirect(`/case/${cn}`);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Update error');
+  }
 });
 
 // Add Comment
-app.post('/case/:caseNum/comment', ensureAuth, (req, res) => {
-  const cn      = req.params.caseNum;
+app.post('/case/:caseNum/comment', ensureAuth, async (req, res) => {
+  const cn = req.params.caseNum;
   const content = req.body.comment;
-  const now     = new Date().toISOString();
-  db.run(
-    'INSERT INTO comments(caseNum, author, content, createdAt) VALUES (?, ?, ?, ?)',
-    [cn, req.session.user, content, now],
-    () => res.redirect(`/case/${cn}`)
-  );
+  const now = new Date().toISOString();
+  try {
+    await pool.query(
+      'INSERT INTO comments(casenum,author,content,createdat) VALUES($1,$2,$3,$4)',
+      [cn, req.session.user, content, now]
+    );
+    res.redirect(`/case/${cn}`);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Comment error');
+  }
 });
 
-// Export PDF (with Comments & Change History)
-app.get('/case/:caseNum/export', ensureAuth, (req, res) => {
+// Export PDF
+app.get('/case/:caseNum/export', ensureAuth, async (req, res) => {
   const cn = req.params.caseNum;
-
-  // Set headers
   res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader(
-    'Content-Disposition',
-    `attachment; filename="BCSO_IA_Case_${cn}.pdf"`
-  );
+  res.setHeader('Content-Disposition', `attachment; filename="BCSO_IA_Case_${cn}.pdf"`);
 
   const doc = new PDFDocument({ size: 'LETTER', margin: 50 });
   doc.pipe(res);
-  function finish() { if (!doc._ending) doc.end(); }
+  try {
+    const { rows: caseRows } = await pool.query('SELECT * FROM cases WHERE casenum=$1', [cn]);
+    const caseData = caseRows[0];
+    if (!caseData) return res.status(404).send('Case not found');
 
-  // 1) Fetch case record
-  db.get('SELECT * FROM cases WHERE caseNum = ?', [cn], (err, row) => {
-    if (err || !row) {
-      res.status(404).send('Case not found');
-      return finish();
-    }
-
-    // HEADER
     const badgePath = path.join(__dirname, 'public', 'images', 'badge.png');
-    if (fs.existsSync(badgePath)) {
-      doc.image(badgePath, doc.page.width - 110, 20, { width: 60 });
-    }
-    doc
-      .fillColor('#228B22').font('Helvetica-Bold').fontSize(18)
-      .text("Blaine County Sheriff's Office", { align: 'center' })
-      .moveDown(0.2)
-      .fillColor('black').fontSize(14)
-      .text('Internal Affairs Case Report', { align: 'center' })
-      .moveDown(0.3)
-      .strokeColor('#CC0000').lineWidth(2)
-      .moveTo(50, doc.y).lineTo(doc.page.width - 50, doc.y).stroke();
+    if (fs.existsSync(badgePath)) doc.image(badgePath, doc.page.width - 110, 20, { width: 60 });
+    doc.fillColor('#228B22').font('Helvetica-Bold').fontSize(18)
+       .text("Blaine County Sheriff's Office", { align: 'center' })
+       .moveDown(0.2).fillColor('black').fontSize(14)
+       .text('Internal Affairs Case Report', { align: 'center' })
+       .moveDown(0.3).strokeColor('#CC0000').lineWidth(2)
+       .moveTo(50, doc.y).lineTo(doc.page.width - 50, doc.y).stroke();
 
-    // METADATA
     doc.moveDown();
     const labelOpts = { width: 120, continued: true };
     const valueOpts = { width: doc.page.width - 200 };
-    doc
-      .font('Helvetica-Bold').fontSize(12).fillColor('black')
-      .text('Case Number:', labelOpts).font('Helvetica').text(row.caseNum, valueOpts)
-      .font('Helvetica-Bold').text('Status:', labelOpts).font('Helvetica').text(row.status, valueOpts)
-      .moveDown(0.2)
-      .font('Helvetica-Bold').text('Reported By:', labelOpts).font('Helvetica').text(row.complainant, valueOpts)
-      .font('Helvetica-Bold').text('Officer:', labelOpts).font('Helvetica').text(row.officer, valueOpts)
-      .moveDown(0.2)
-      .font('Helvetica-Bold').text('Date of Incident:', labelOpts).font('Helvetica').text(row.incidentDate, valueOpts)
-      .font('Helvetica-Bold').text('Assigned To:', labelOpts).font('Helvetica').text(row.assigned||'Unassigned', valueOpts);
+    doc.font('Helvetica-Bold').fontSize(12).fillColor('black')
+       .text('Case Number:', labelOpts).font('Helvetica').text(caseData.casenum, valueOpts)
+       .font('Helvetica-Bold').text('Status:', labelOpts).font('Helvetica').text(caseData.status, valueOpts)
+       .moveDown(0.2)
+       .font('Helvetica-Bold').text('Reported By:', labelOpts).font('Helvetica').text(caseData.complainant, valueOpts)
+       .font('Helvetica-Bold').text('Officer:', labelOpts).font('Helvetica').text(caseData.officer, valueOpts)
+       .moveDown(0.2)
+       .font('Helvetica-Bold').text('Date of Incident:', labelOpts).font('Helvetica').text(caseData.incidentdate.toISOString().slice(0,10), valueOpts)
+       .font('Helvetica-Bold').text('Assigned To:', labelOpts).font('Helvetica').text(caseData.assigned||'Unassigned', valueOpts);
 
-    // SUMMARY
-    doc.moveDown(1)
-      .fillColor('#CC0000').font('Helvetica-Bold').fontSize(13)
-      .text('Summary', { underline: true })
-      .moveDown(0.3)
-      .fillColor('black').font('Helvetica').fontSize(11)
-      .text(row.summary, { align: 'justify' });
+    doc.moveDown(1).fillColor('#CC0000').font('Helvetica-Bold').fontSize(13)
+       .text('Summary', { underline: true })
+       .moveDown(0.3).fillColor('black').font('Helvetica').fontSize(11)
+       .text(caseData.summary, { align: 'justify' });
 
-    // ATTACHMENTS → COMMENTS → HISTORY
-    db.all('SELECT url FROM attachments WHERE caseNum = ?', [cn], (e2, atts) => {
-      if (!e2 && atts.length) {
-        doc.moveDown(0.8)
-          .fillColor('#CC0000').font('Helvetica-Bold').fontSize(13)
-          .text('Attachments', { underline: true })
-          .moveDown(0.3)
-          .fillColor('black').font('Helvetica').fontSize(11);
-        atts.forEach((a,i)=> doc.text(`${i+1}. ${a.url}`, { link: a.url, underline: true }));
-      }
+    const { rows: attRows } = await pool.query('SELECT url FROM attachments WHERE casenum=$1', [cn]);
+    if (attRows.length) {
+      doc.moveDown(0.8).fillColor('#CC0000').font('Helvetica-Bold').fontSize(13)
+         .text('Attachments', { underline: true })
+         .moveDown(0.3).fillColor('black').font('Helvetica').fontSize(11);
+      attRows.forEach((a,i) => doc.text(`${i+1}. ${a.url}`, { link: a.url, underline: true }));
+    }
 
-      db.all('SELECT author,content,createdAt FROM comments WHERE caseNum = ? ORDER BY createdAt',[cn],(e3,comments)=>{
-        if (!e3 && comments.length) {
-          doc.addPage()
-            .fillColor('#CC0000').font('Helvetica-Bold').fontSize(13)
-            .text('Comments', { underline: true })
-            .moveDown(0.3)
-            .fillColor('black').font('Helvetica').fontSize(11);
-          comments.forEach(c=>{
-            const ts=new Date(c.createdAt).toLocaleString();
-            doc.font('Helvetica-Bold').text(`${c.author} @ ${ts}`)
-               .moveDown(0.1)
-               .font('Helvetica').text(c.content, { indent: 20 })
-               .moveDown(0.5);
-          });
-        }
-
-        db.all('SELECT field,oldValue,newValue,changedBy,changedAt FROM history WHERE caseNum = ? ORDER BY changedAt',[cn],(e4,hist)=>{
-          if (!e4 && hist.length) {
-            doc.addPage()
-              .fillColor('#CC0000').font('Helvetica-Bold').fontSize(13)
-              .text('Change History', { underline: true })
-              .moveDown(0.3)
-              .fillColor('black').font('Helvetica').fontSize(11);
-            hist.forEach(h=>{
-              const ts=new Date(h.changedAt).toLocaleString();
-              doc.font('Helvetica-Bold').text(`${h.field} changed by ${h.changedBy} @ ${ts}`)
-                 .moveDown(0.1)
-                 .font('Helvetica').text(`from "${h.oldValue}" to "${h.newValue}"`, { indent: 20 })
-                 .moveDown(0.5);
-            });
-          }
-          finish();
-        });
+    const { rows: comRows } = await pool.query('SELECT author,content,createdat FROM comments WHERE casenum=$1 ORDER BY createdat', [cn]);
+    if (comRows.length) {
+      doc.addPage().fillColor('#CC0000').font('Helvetica-Bold').fontSize(13)
+         .text('Comments', { underline: true })
+         .moveDown(0.3).fillColor('black').font('Helvetica').fontSize(11);
+      comRows.forEach(c => {
+        const ts = new Date(c.createdat).toLocaleString();
+        doc.font('Helvetica-Bold').text(`${c.author} @ ${ts}`)
+           .moveDown(0.1).font('Helvetica').text(c.content, { indent: 20 })
+           .moveDown(0.5);
       });
-    });
-  });
+    }
+
+    doc.end();
+  } catch (e) {
+    console.error(e);
+    doc.end();
+  }
 });
 
 // Heartbeat
 app.get('/heartbeat', (req, res) => res.sendStatus(200));
 
 // ─── Start Server ─────────────────────────────────────────────────────────────
-app.listen(PORT, () => {
-  console.log(`Dashboard running on http://localhost:${PORT}`);
-});
+app.listen(PORT, () => console.log(`Dashboard running on http://localhost:${PORT}`));
