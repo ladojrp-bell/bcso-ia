@@ -227,29 +227,56 @@ app.get('/cases', ensureAuth, (req, res) => {
 });
 
 // New Case
-app.get('/case/new', ensureAuth, (req, res) => {
-  res.render('new', { title: 'New Case' });
-});
 app.post('/case/new', ensureAuth, upload.array('evidence', 10), (req, res) => {
   const { complainant, officer, incidentDate, summary, severity, assigned } = req.body;
   const files = req.files || [];
+
+  // Build a YYYYMMDD stamp from today
   const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const prefix = `IA-${stamp}-`;        // e.g. "IA-20250728-"
+
+  // Count how many existing caseNums start with that prefix
   db.get(
-    'SELECT COUNT(*) AS cnt FROM cases WHERE createdAt LIKE ?',
-    [`${stamp}%`],
-    (e, row) => {
-      const caseNum = `IA-${stamp}-${String(row.cnt + 1).padStart(3, '0')}`;
+    'SELECT COUNT(*) AS cnt FROM cases WHERE caseNum LIKE ?',
+    [`${prefix}%`],
+    (err, row) => {
+      if (err) {
+        console.error('Error counting cases:', err);
+        return res.status(500).send('Server error');
+      }
+
+      // New case number, sequence = current count + 1
+      const seq = String(row.cnt + 1).padStart(3, '0');
+      const caseNum = `${prefix}${seq}`;  // e.g. "IA-20250728-002"
       const now = new Date().toISOString();
+
+      // Insert the new case record
       db.run(
         `INSERT INTO cases
-          (caseNum, complainant, officer, incidentDate, summary, severity, assigned, createdBy, createdAt)
-         VALUES (?,?,?,?,?,?,?,?,?)`,
-        [caseNum, complainant, officer, incidentDate, summary, severity, assigned, req.session.user, now],
-        err => {
+          (caseNum, complainant, officer, incidentDate, summary,
+           severity, assigned, createdBy, createdAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [caseNum, complainant, officer, incidentDate,
+         summary, severity, assigned, req.session.user, now],
+        err2 => {
+          if (err2) {
+            console.error('Error inserting case:', err2);
+            return res.status(500).send('Failed to create case');
+          }
+
+          // Insert any uploaded attachments
           files.forEach(f => {
             const url = `/static/uploads/${f.filename}`;
-            db.run('INSERT INTO attachments(caseNum,url) VALUES(?,?)', [caseNum, url]);
+            db.run(
+              'INSERT INTO attachments(caseNum, url) VALUES(?, ?)',
+              [caseNum, url],
+              err3 => {
+                if (err3) console.error('Error saving attachment:', err3);
+              }
+            );
           });
+
+          // Redirect to the newly created case
           res.redirect(`/case/${caseNum}`);
         }
       );
