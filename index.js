@@ -282,43 +282,99 @@ app.post('/case/:caseNum/comment', ensureAuth, async (req,res)=>{
 });
 
 // Export PDF
-app.get('/case/:caseNum/export', ensureAuth, async (req,res)=>{
-  const cn=req.params.caseNum;
-  res.setHeader('Content-Type','application/pdf');
-  res.setHeader('Content-Disposition',`attachment; filename="BCSO_IA_Case_${cn}.pdf"`);
-  const doc=new PDFDocument({size:'LETTER',margin:50}); doc.pipe(res);
-  try{
-    const {rows:caseRows}=await pool.query('SELECT * FROM cases WHERE casenum=$1',[cn]);
-    const caseData=caseRows[0]; if(!caseData) return res.status(404).send('Case not found');
-    const badgePath=path.join(__dirname,'public','images','badge.png'); if(fs.existsSync(badgePath)) doc.image(badgePath,doc.page.width-110,20,{width:60});
-    doc.fillColor('#228B22').font('Helvetica-Bold').fontSize(18).text("Blaine County Sheriff's Office",{align:'center'})
-       .moveDown(0.2).fillColor('black').fontSize(14).text('Internal Affairs Case Report',{align:'center'})
-       .moveDown(0.3).strokeColor('#CC0000').lineWidth(2).moveTo(50,doc.y).lineTo(doc.page.width-50,doc.y).stroke();
-    doc.moveDown(); const labelOpts={width:120,continued:true}; const valueOpts={width:doc.page.width-200};
-    doc.font('Helvetica-Bold').fontSize(12).fillColor('black')
-       .text('Case Number:',labelOpts).font('Helvetica').text(caseData.casenum,valueOpts)
-       .font('Helvetica-Bold').text('Status:',labelOpts).font('Helvetica').text(caseData.status,valueOpts)
-       .moveDown(0.2)
-       .font('Helvetica-Bold').text('Reported By:',labelOpts).font('Helvetica').text(caseData.complainant,valueOpts)
-       .font('Helvetica-Bold').text('Officer:',labelOpts).font('Helvetica').text(caseData.officer,valueOpts)
-       .moveDown(0.2)
-       .font('Helvetica-Bold').text('Date of Incident:',labelOpts).font('Helvetica').text(caseData.incidentdate.toISOString().slice(0,10),valueOpts)
-       .font('Helvetica-Bold').text('Assigned To:',labelOpts).font('Helvetica').text(caseData.assigned||'Unassigned',valueOpts);
-    doc.moveDown(1).fillColor('#CC0000').font('Helvetica-Bold').fontSize(13).text('Summary',{underline:true})
-       .moveDown(0.3).fillColor('black').font('Helvetica').fontSize(11).text(caseData.summary,{align:'justify'});
-    const {rows:attRows}=await pool.query('SELECT url FROM attachments WHERE casenum=$1',[cn]);
-    if(attRows.length){doc.moveDown(0.8).fillColor('#CC0000').font('Helvetica-Bold').fontSize(13).text('Attachments',{underline:true})
-      .moveDown(0.3).fillColor('black').font('Helvetica').fontSize(11);attRows.forEach((a,i)=>doc.text(`${i+1}. ${a.url}`,{link:a.url,underline:true}));}
-    const {rows:comRows}=await pool.query('SELECT author,content,createdat FROM comments WHERE casenum=$1 ORDER BY createdat',[cn]);
-    if(comRows.length){doc.addPage().fillColor('#CC0000').font('Helvetica-Bold').fontSize(13).text('Comments',{underline:true})
-      .moveDown(0.3).fillColor('black').font('Helvetica').fontSize(11);comRows.forEach(c=>{const ts=new Date(c.createdat).toLocaleString();doc.font('Helvetica-Bold').text(`${c.author} @ ${ts}`)
-      .moveDown(0.1).font('Helvetica').text(c.content,{indent:20}).moveDown(0.5);});}
+app.get('/case/:caseNum/export', ensureAuth, async (req, res) => {
+  const cn = req.params.caseNum;
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="BCSO_IA_Case_${cn}.pdf"`);
+  const doc = new PDFDocument({ size: 'LETTER', margin: 50 });
+  doc.pipe(res);
+  try {
+    const { rows: caseRows } = await pool.query(
+      'SELECT * FROM cases WHERE casenum = $1',
+      [cn]
+    );
+    const caseData = caseRows[0];
+    if (!caseData) return res.status(404).send('Case not found');
+
+    const badgePath = path.join(__dirname, 'public', 'images', 'badge.png');
+    if (fs.existsSync(badgePath)) {
+      doc.image(badgePath, doc.page.width - 110, 20, { width: 60 });
+    }
+
+    doc
+      .fillColor('#228B22').font('Helvetica-Bold').fontSize(18)
+      .text("Blaine County Sheriff's Office", { align: 'center' })
+      .moveDown(0.2)
+      .fillColor('black').fontSize(14)
+      .text('Internal Affairs Case Report', { align: 'center' })
+      .moveDown(0.3)
+      .strokeColor('#CC0000').lineWidth(2)
+      .moveTo(50, doc.y).lineTo(doc.page.width - 50, doc.y).stroke();
+
+    doc.moveDown();
+    const labelOpts = { width: 120, continued: true };
+    const valueOpts = { width: doc.page.width - 200 };
+    doc
+      .font('Helvetica-Bold').fontSize(12).fillColor('black')
+      .text('Case Number:', labelOpts).font('Helvetica').text(caseData.casenum, valueOpts)
+      .font('Helvetica-Bold').text('Status:', labelOpts).font('Helvetica').text(caseData.status, valueOpts)
+      .moveDown(0.2)
+      .font('Helvetica-Bold').text('Reported By:', labelOpts).font('Helvetica').text(caseData.complainant, valueOpts)
+      .font('Helvetica-Bold').text('Officer:', labelOpts).font('Helvetica').text(caseData.officer, valueOpts)
+      .moveDown(0.2)
+      .font('Helvetica-Bold').text('Date of Incident:', labelOpts).font('Helvetica').text(caseData.incidentdate.toISOString().slice(0,10), valueOpts)
+      .font('Helvetica-Bold').text('Assigned To:', labelOpts).font('Helvetica').text(caseData.assigned || 'Unassigned', valueOpts);
+
+    doc.moveDown(1)
+      .fillColor('#CC0000').font('Helvetica-Bold').fontSize(13)
+      .text('Summary', { underline: true })
+      .moveDown(0.3)
+      .fillColor('black').font('Helvetica').fontSize(11)
+      .text(caseData.summary, { align: 'justify' });
+
+    const { rows: attRows } = await pool.query(
+      'SELECT url FROM attachments WHERE casenum = $1',
+      [cn]
+    );
+    if (attRows.length) {
+      doc.moveDown(0.8)
+        .fillColor('#CC0000').font('Helvetica-Bold').fontSize(13)
+        .text('Attachments', { underline: true })
+        .moveDown(0.3)
+        .fillColor('black').font('Helvetica').fontSize(11);
+      attRows.forEach((a, i) => {
+        doc.text(`${i+1}. ${a.url}`, { link: a.url, underline: true });
+      });
+    }
+
+    const { rows: comRows } = await pool.query(
+      'SELECT author, content, createdat FROM comments WHERE casenum = $1 ORDER BY createdat',
+      [cn]
+    );
+    if (comRows.length) {
+      doc.addPage()
+        .fillColor('#CC0000').font('Helvetica-Bold').fontSize(13)
+        .text('Comments', { underline: true })
+        .moveDown(0.3)
+        .fillColor('black').font('Helvetica').fontSize(11);
+      comRows.forEach(c => {
+        const ts = new Date(c.createdat).toLocaleString();
+        doc.font('Helvetica-Bold').text(`${c.author} @ ${ts}`)
+           .moveDown(0.1)
+           .font('Helvetica').text(c.content, { indent: 20 })
+           .moveDown(0.5);
+      });
+    }
+
     doc.end();
-  }catch(e){console.error(e);doc.end();}
+  } catch (e) {
+    console.error(e);
+    doc.end();
+  }
 });
 
 // Heartbeat
-app.get('/heartbeat',(req,res)=>res.sendStatus(200));
+app.get('/heartbeat', (req, res) => res.sendStatus(200));
 
-// ─── Start ─────────────────────────────────────────────────────
-app.listen(PORT,()=>console.log(`Running on http://localhost:${PORT}`));
+// ─── Start Server ─────────────────────────────────────────────────────────────
+app.listen(PORT, () => console.log(`Running on http://localhost:${PORT}`));(PORT,()=>console.log(`Running on http://localhost:${PORT}`));
