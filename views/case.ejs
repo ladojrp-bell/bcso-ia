@@ -1,33 +1,61 @@
-<% layout('layout') %>
-<h2 class="text-2xl font-semibold mb-4">Case <%= caseData.caseNum %></h2>
-<div class="space-y-2">
-  <p><strong>Complainant:</strong> <%= caseData.complainant %></p>
-  <p><strong>Officer:</strong> <%= caseData.officer %></p>
-  <p><strong>Date:</strong> <%= caseData.incidentDate %></p>
-  <p><strong>Severity:</strong> <%= caseData.severity %></p>
-  <p><strong>Status:</strong> <%= caseData.status %></p>
-  <p><strong>Assigned:</strong> <%= caseData.assigned %></p>
-  <p><strong>Summary:</strong><br><%= caseData.summary %></p>
-</div>
-<div class="mt-4 space-x-4">
-  <a href="/case/<%= caseData.caseNum %>/edit" class="text-blue-600 hover:underline">Edit</a>
-  <a href="/case/<%= caseData.caseNum %>/export" class="text-blue-600 hover:underline">Export PDF</a>
-</div>
+<h1 class="text-2xl font-semibold mb-4">Case <%= caseData.caseNum %></h1>
 
-<h3 class="text-xl font-semibold mt-6">Attachments</h3>
-<ul class="list-disc ml-6">
-  <% for (const att of attachments) { %>
-    <li><a href="<%= att.url %>" class="text-blue-600 hover:underline" target="_blank"><%= att.url %></a></li>
-  <% } %>
-</ul>
+<p><strong>Status:</strong> <%= caseData.status %></p>
+<p><strong>Assigned To:</strong> <%= caseData.assigned || '—' %></p>
+<p><strong>Severity:</strong> <%= caseData.severity %></p>
+<p><strong>Date:</strong> <%= caseData.incidentDate %></p>
+<p><strong>Created By:</strong> <%= caseData.createdBy %> at 
+   <%= new Date(caseData.createdAt).toLocaleString() %>
+</p>
 
-<h3 class="text-xl font-semibold mt-6">Comments</h3>
+<hr class="my-4">
+
+<h2 class="text-xl font-semibold">Summary</h2>
+<p class="mb-4"><%= caseData.summary %></p>
+
+<% if (attachments.length) { %>
+  <h2 class="text-xl font-semibold">Attachments</h2>
+  <ul class="list-disc list-inside mb-4">
+    <% attachments.forEach(a => { %>
+      <li><a href="<%= a.url %>" target="_blank"><%= a.url.split('/').pop() %></a></li>
+    <% }) %>
+  </ul>
+<% } %>
+
+<h2 class="text-xl font-semibold">Comments</h2>
 <ul class="space-y-2">
-  <% for (const c of comments) { %>
-    <li><strong><%= c.author %>:</strong> <%= c.content %></li>
-  <% } %>
+  <% comments.forEach(c => { %>
+    <li class="border p-2 rounded">
+      <p><strong><%= c.author %></strong> 
+         <em><%= new Date(c.createdAt).toLocaleString() %></em>
+      </p>
+      <p><%= c.content %></p>
+    </li>
+  <% }) %>
 </ul>
-<form method="POST" action="/case/<%= caseData.caseNum %>/comment" class="mt-4 space-y-2">
-  <textarea name="comment" required class="border p-2 w-full rounded"></textarea>
-  <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Post Comment</button>
+
+<div class="mt-6">
+  <a href="/case/<%= caseData.caseNum %>/edit"
+     class="px-4 py-2 bg-yellow-500 text-white rounded">
+    ✏️ Edit Case
+  </a>
+  <a href="/case/<%= caseData.caseNum %>/export"
+     class="px-4 py-2 bg-green-600 text-white rounded ml-2">
+    📄 Export PDF
+  </a>
+  <a href="/cases"
+     class="px-4 py-2 bg-gray-400 text-white rounded ml-2">
+    ← Back to All Cases
+  </a>
+</div>
+
+<hr class="my-6">
+
+<h3 class="text-lg font-semibold mb-2">Add a Comment</h3>
+<form action="/case/<%= caseData.caseNum %>/comment" method="POST" class="space-y-2">
+  <textarea name="comment" rows="3" required
+    class="w-full border p-2 rounded"></textarea>
+  <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded">
+    Post Comment
+  </button>
 </form>

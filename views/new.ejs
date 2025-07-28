@@ -1,16 +1,14 @@
-<% layout('layout') %>
 <h2 class="text-2xl font-semibold mb-4">New IA Case</h2>
 <form method="POST" action="/case/new" enctype="multipart/form-data" class="space-y-4">
   <input name="complainant" placeholder="Complainant" required class="border p-2 w-full rounded">
   <input name="officer" placeholder="Officer" required class="border p-2 w-full rounded">
-  <input name="incidentDate" type="date" required class="border p-2 rounded">
+  <input type="date" name="incidentDate" required class="border p-2 w-full rounded">
   <textarea name="summary" placeholder="Summary" required class="border p-2 w-full rounded"></textarea>
-  <select name="severity" class="border p-2 rounded w-full">
+  <select name="severity" class="border p-2 w-full rounded">
     <option value="Low">Low</option>
     <option value="Medium">Medium</option>
     <option value="High">High</option>
   </select>
-  <input name="assigned" placeholder="Assigned To" class="border p-2 w-full rounded">
-  <input type="file" name="evidence" multiple class="border p-2 rounded">
-  <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Create Case</button>
+  <input type="file" name="evidence" multiple class="border p-2 w-full rounded">
+  <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded">Create Case</button>
 </form>

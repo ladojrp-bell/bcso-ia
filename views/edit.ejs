@@ -1,15 +1,38 @@
-<% layout('layout') %>
-<h2 class="text-2xl font-semibold mb-4">Edit Case <%= caseData.caseNum %></h2>
-<form method="POST" action="/case/<%= caseData.caseNum %>/edit" class="space-y-4">
-  <select name="status" class="border p-2 rounded w-full">
-    <option value="Open" <%= caseData.status === 'Open' ? 'selected' : '' %>>Open</option>
-    <option value="Closed" <%= caseData.status === 'Closed' ? 'selected' : '' %>>Closed</option>
-  </select>
-  <select name="severity" class="border p-2 rounded w-full">
-    <option value="Low" <%= caseData.severity === 'Low' ? 'selected' : '' %>>Low</option>
-    <option value="Medium" <%= caseData.severity === 'Medium' ? 'selected' : '' %>>Medium</option>
-    <option value="High" <%= caseData.severity === 'High' ? 'selected' : '' %>>High</option>
-  </select>
-  <input name="assigned" value="<%= caseData.assigned %>" class="border p-2 w-full rounded">
-  <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Save Changes</button>
-</form>
+  <h2 class="text-2xl font-semibold mb-4">Edit Case <%= caseData.caseNum %></h2>
+
+  <form method="POST" action="/case/<%= caseData.caseNum %>/edit" class="space-y-4">
+    <div>
+      <label>Status</label>
+      <select name="status" class="border p-2 rounded w-full">
+        <option value="Open"   <%= caseData.status==='Open'   ? 'selected' : '' %>>Open</option>
+        <option value="Closed" <%= caseData.status==='Closed' ? 'selected' : '' %>>Closed</option>
+        <option value="Pending"<%= caseData.status==='Pending'? 'selected' : '' %>>Pending</option>
+      </select>
+    </div>
+
+    <div>
+      <label>Assigned To</label>
+      <input
+        name="assigned"
+        value="<%= caseData.assigned || '' %>"
+        placeholder="Username or —"
+        class="border p-2 rounded w-full"
+      >
+    </div>
+
+    <div>
+      <label>Severity</label>
+      <select name="severity" class="border p-2 rounded w-full">
+        <option value="Low"    <%= caseData.severity==='Low'    ? 'selected' : '' %>>Low</option>
+        <option value="Medium" <%= caseData.severity==='Medium' ? 'selected' : '' %>>Medium</option>
+        <option value="High"   <%= caseData.severity==='High'   ? 'selected' : '' %>>High</option>
+      </select>
+    </div>
+
+    <button type="submit" class="px-4 py-2 bg-yellow-500 text-white rounded">
+      Save Changes
+    </button>
+    <a href="/case/<%= caseData.caseNum %>" class="ml-4 text-blue-600 underline">
+      Cancel
+    </a>
+  </form>
