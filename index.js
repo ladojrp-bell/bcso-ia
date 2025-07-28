@@ -164,19 +164,30 @@ app.post('/admin/users/:id/delete', ensureAuth, ensureAdmin, async (req,res)=>{
 });
 
 // List Cases
-app.get('/cases', ensureAuth, async (req,res)=>{
-  try{
-    const {rows} = await pool.query(
+// List Cases
+app.get('/cases', ensureAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
       `SELECT
-        casenum AS "caseNum",
+        casenum    AS "caseNum",
         status,
         assigned,
-        createdby AS "createdBy",
-        createdat AS "createdAt"
+        createdby  AS "createdBy",
+        createdat  AS "createdAt"
        FROM cases
        ORDER BY createdat DESC`
     );
-    res.render('cases',{title:'All Cases',cases:rows});
+    // Convert UTC timestamps to Eastern Time
+    const formatted = rows.map(c => ({
+      ...c,
+      createdAt: new Date(c.createdAt).toLocaleString('en-US', { timeZone: 'America/New_York' })
+    }));
+    res.render('cases', { title: 'All Cases', cases: formatted });
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('DB error');
+  }
+});
   }catch(e){console.error(e);res.status(500).send('DB error');}
 });
 
@@ -208,37 +219,62 @@ app.post('/case/new', ensureAuth, upload.array('evidence',10), async (req,res)=>
 });
 
 // View Case
-app.get('/case/:caseNum', ensureAuth, async (req,res)=>{
-  try{
-    const {rows}=await pool.query(
+// View Case
+app.get('/case/:caseNum', ensureAuth, async (req, res) => {
+  const cn = req.params.caseNum;
+  try {
+    const { rows } = await pool.query(
       `SELECT
-         casenum    AS "caseNum",
-         complainant,
-         officer,
-         incidentdate AS "incidentDate",
-         summary,
-         severity,
+         casenum         AS "caseNum",
          status,
          assigned,
-         createdby  AS "createdBy",
-         createdat  AS "createdAt"
-       FROM cases WHERE casenum=$1`,[req.params.caseNum]
+         severity,
+         incidentdate    AS "incidentDate",
+         createdby       AS "createdBy",
+         createdat       AS "createdAt",
+         summary
+       FROM cases
+       WHERE casenum = $1`,
+      [cn]
     );
-    const caseData=rows[0]; if(!caseData) return res.status(404).send('Not found');
+    if (!rows[0]) return res.status(404).send('Not found');
+    let caseData = rows[0];
+    // Format dates to Eastern Time
+    caseData.incidentDate = new Date(caseData.incidentDate).toLocaleString('en-US', {
+      timeZone: 'America/New_York',
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric'
+    });
+    caseData.createdAt = new Date(caseData.createdAt).toLocaleString('en-US', { timeZone: 'America/New_York' });
 
-    const {rows:comments} = await pool.query(
+    let { rows: comments } = await pool.query(
       `SELECT
-author,
-content,
-createdat AS "createdAt"
-FROM comments WHERE casenum=$1 ORDER BY createdat`,[req.params.caseNum]
+         author,
+         content,
+         createdat AS "createdAt"
+       FROM comments
+       WHERE casenum = $1
+       ORDER BY createdat`,
+      [cn]
+    );
+    // Format comment timestamps
+    comments = comments.map(c => ({
+      ...c,
+      createdAt: new Date(c.createdAt).toLocaleString('en-US', { timeZone: 'America/New_York' })
+    }));
+
+    const { rows: attachments } = await pool.query(
+      'SELECT url FROM attachments WHERE casenum = $1',
+      [cn]
     );
 
-    const {rows:attachments} = await pool.query(
-      'SELECT url FROM attachments WHERE casenum=$1',[req.params.caseNum]
-    );
-
-    res.render('case',{title:`Case ${req.params.caseNum}`,caseData,comments,attachments});
+    res.render('case', { title: `Case ${cn}`, caseData, comments, attachments });
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('DB error');
+  }
+});
   }catch(e){console.error(e);res.status(500).send('DB error');}
 });
 
