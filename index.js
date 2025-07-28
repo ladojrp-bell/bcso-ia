@@ -193,13 +193,14 @@ app.get('/logout', (req, res) => {
   req.session.destroy(() => res.redirect('/login'));
 });
 
-// Manage Users (Admin only)
+// ─── User Management (Admin only) ────────────────────────────────────────────
 app.get('/admin/users', ensureAuth, ensureAdmin, (req, res) => {
   db.all('SELECT id, username, role FROM users', [], (err, users) => {
     if (err) return res.status(500).send('DB error');
     res.render('users', { title: 'Manage Users', users });
   });
 });
+
 app.post('/admin/users/add', ensureAuth, ensureAdmin, (req, res) => {
   const { username, password, role } = req.body;
   const hash = bcrypt.hashSync(password, 10);
@@ -212,6 +213,7 @@ app.post('/admin/users/add', ensureAuth, ensureAdmin, (req, res) => {
     }
   );
 });
+
 app.post('/admin/users/:id/delete', ensureAuth, ensureAdmin, (req, res) => {
   db.run('DELETE FROM users WHERE id = ?', [req.params.id], err => {
     if (err) return res.status(500).send('Delete error');
