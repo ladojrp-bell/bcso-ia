@@ -159,7 +159,7 @@ app.post('/login', async (req, res) => {
 // Logout
 app.get('/logout', (req, res) => req.session.destroy(() => res.redirect('/login')));
 
-// Manage Users
+// Manage Users (Admin)
 app.get('/admin/users', ensureAuth, ensureAdmin, async (req, res) => {
   try {
     const { rows: users } = await pool.query('SELECT id,username,role FROM users');
@@ -173,10 +173,7 @@ app.post('/admin/users/add', ensureAuth, ensureAdmin, async (req, res) => {
   const { username, password, role } = req.body;
   const hash = bcrypt.hashSync(password, 10);
   try {
-    await pool.query(
-      'INSERT INTO users(username,passwordhash,role) VALUES($1,$2,$3)',
-      [username, hash, role || 'user']
-    );
+    await pool.query('INSERT INTO users(username,passwordhash,role) VALUES($1,$2,$3)', [username, hash, role || 'user']);
     res.redirect('/admin/users');
   } catch (e) {
     console.error(e);
@@ -231,7 +228,7 @@ app.post('/case/new', ensureAuth, async (req, res) => {
   const prefix = `IA-${stamp}-`;
 
   try {
-    // 1) Figure out the next sequence number for today
+    // 1) Next caseNum
     const { rows: countRows } = await pool.query(
       'SELECT COUNT(*)::int AS cnt FROM cases WHERE casenum LIKE $1',
       [`${prefix}%`]
@@ -239,7 +236,7 @@ app.post('/case/new', ensureAuth, async (req, res) => {
     const seq     = String(countRows[0].cnt + 1).padStart(3, '0');
     const caseNum = `${prefix}${seq}`;
 
-    // 2) Insert the new case
+    // 2) Insert case
     await pool.query(
       `INSERT INTO cases
         (casenum,complainant,officer,incidentdate,summary,
@@ -249,7 +246,10 @@ app.post('/case/new', ensureAuth, async (req, res) => {
        summary, severity, assigned, req.session.user, now]
     );
 
-    // 3) Parse and insert each link as an attachment
+    // 2a) Clean out any old attachments for this caseNum
+    await pool.query('DELETE FROM attachments WHERE casenum=$1', [caseNum]);
+
+    // 3) Insert links
     const links = (evidenceLinks || '')
       .split(/\r?\n/)
       .map(l => l.trim())
@@ -257,14 +257,11 @@ app.post('/case/new', ensureAuth, async (req, res) => {
 
     await Promise.all(
       links.map(url =>
-        pool.query(
-          'INSERT INTO attachments(casenum,url) VALUES($1,$2)',
-          [caseNum, url]
-        )
+        pool.query('INSERT INTO attachments(casenum,url) VALUES($1,$2)', [caseNum, url])
       )
     );
 
-    // 4) Redirect to the freshly created case page
+    // 4) Redirect
     res.redirect(`/case/${caseNum}`);
   } catch (err) {
     console.error('Error creating case:', err);
@@ -280,15 +277,13 @@ app.get('/case/:caseNum', ensureAuth, async (req, res) => {
       `SELECT casenum AS "caseNum", status, assigned, severity,
          incidentdate AS "incidentDate", createdby AS "createdBy",
          createdat AS "createdAt", summary
-       FROM cases WHERE casenum = $1`,
+       FROM cases WHERE casenum=$1`,
       [cn]
     );
     if (!rows[0]) return res.status(404).send('Not found');
-
     let caseData = rows[0];
     caseData.incidentDate = new Date(caseData.incidentDate).toLocaleString('en-US', {
-      timeZone: 'America/New_York',
-      month: 'long', day: 'numeric', year: 'numeric'
+      timeZone: 'America/New_York', month: 'long', day: 'numeric', year: 'numeric'
     });
     caseData.createdAt = new Date(caseData.createdAt).toLocaleString('en-US', {
       timeZone: 'America/New_York'
@@ -296,18 +291,16 @@ app.get('/case/:caseNum', ensureAuth, async (req, res) => {
 
     let { rows: comments } = await pool.query(
       `SELECT author, content, createdat AS "createdAt"
-       FROM comments WHERE casenum = $1 ORDER BY createdat`,
+       FROM comments WHERE casenum=$1 ORDER BY createdat`,
       [cn]
     );
     comments = comments.map(c => ({
       ...c,
-      createdAt: new Date(c.createdAt).toLocaleString('en-US', {
-        timeZone: 'America/New_York'
-      })
+      createdAt: new Date(c.createdAt).toLocaleString('en-US', { timeZone: 'America/New_York' })
     }));
 
     const { rows: attachments } = await pool.query(
-      'SELECT url FROM attachments WHERE casenum = $1',
+      'SELECT url FROM attachments WHERE casenum=$1',
       [cn]
     );
 
@@ -325,7 +318,7 @@ app.get('/case/:caseNum/edit', ensureAuth, async (req, res) => {
     const { rows } = await pool.query(
       `SELECT casenum AS "caseNum", complainant, officer,
          incidentdate AS "incidentDate", summary, severity, status, assigned
-       FROM cases WHERE casenum = $1`,
+       FROM cases WHERE casenum=$1`,
       [cn]
     );
     const caseData = rows[0];
@@ -375,10 +368,10 @@ app.post('/case/:caseNum/comment', ensureAuth, async (req, res) => {
 app.post('/case/:caseNum/delete', ensureAuth, ensureAdmin, async (req, res) => {
   const caseNum = req.params.caseNum;
   try {
-    await pool.query('DELETE FROM cases WHERE casenum = $1', [caseNum]);
+    await pool.query('DELETE FROM cases WHERE casenum=$1', [caseNum]);
     res.redirect('/cases');
-  } catch (err) {
-    console.error('Error deleting case:', err);
+  } catch (e) {
+    console.error(e);
     res.status(500).send('Failed to delete case');
   }
 });
@@ -392,41 +385,31 @@ app.get('/case/:caseNum/export', ensureAuth, async (req, res) => {
   doc.pipe(res);
 
   try {
-    const { rows: caseRows } = await pool.query(
-      'SELECT * FROM cases WHERE casenum = $1',
-      [cn]
-    );
+    const { rows: caseRows } = await pool.query('SELECT * FROM cases WHERE casenum=$1',[cn]);
     const caseData = caseRows[0];
     if (!caseData) return res.status(404).send('Not found');
 
     const badgePath = path.join(__dirname, 'public', 'images', 'badge.png');
-    if (fs.existsSync(badgePath)) {
-      doc.image(badgePath, doc.page.width - 110, 20, { width: 60 });
-    }
+    if (fs.existsSync(badgePath)) doc.image(badgePath, doc.page.width - 110, 20, { width: 60 });
 
     doc
       .fillColor('#228B22').font('Helvetica-Bold').fontSize(18)
-      .text("Blaine County Sheriff's Office", { align: 'center' })
+      .text("Blaine County Sheriff's Office",{align:'center'})
       .moveDown(0.2).fillColor('black').fontSize(14)
-      .text('Internal Affairs Case Report', { align: 'center' })
+      .text('Internal Affairs Case Report',{align:'center'})
       .moveDown(0.3).strokeColor('#CC0000').lineWidth(2)
       .moveTo(50, doc.y).lineTo(doc.page.width - 50, doc.y).stroke();
 
     doc.moveDown();
-    const labelOpts = { width: 120, continued: true };
-    const valueOpts = { width: doc.page.width - 200 };
+    const labelOpts = { width: 120, continued: true }, valueOpts = { width: doc.page.width - 200 };
 
     doc
       .font('Helvetica-Bold').fontSize(12).fillColor('black')
-      .text('Case Number:', labelOpts)
-      .font('Helvetica').text(caseData.casenum, valueOpts)
-      .font('Helvetica-Bold').text('Status:', labelOpts)
-      .font('Helvetica').text(caseData.status, valueOpts)
+      .text('Case Number:', labelOpts).font('Helvetica').text(caseData.casenum, valueOpts)
+      .font('Helvetica-Bold').text('Status:', labelOpts).font('Helvetica').text(caseData.status, valueOpts)
       .moveDown(0.2)
-      .font('Helvetica-Bold').text('Reported By:', labelOpts)
-      .font('Helvetica').text(caseData.complainant, valueOpts)
-      .font('Helvetica-Bold').text('Officer:', labelOpts)
-      .font('Helvetica').text(caseData.officer, valueOpts)
+      .font('Helvetica-Bold').text('Reported By:', labelOpts).font('Helvetica').text(caseData.complainant, valueOpts)
+      .font('Helvetica-Bold').text('Officer:', labelOpts).font('Helvetica').text(caseData.officer, valueOpts)
       .moveDown(0.2)
       .font('Helvetica-Bold').text('Date of Incident:', labelOpts)
       .font('Helvetica').text(caseData.incidentdate.toISOString().slice(0,10), valueOpts)
@@ -435,41 +418,37 @@ app.get('/case/:caseNum/export', ensureAuth, async (req, res) => {
 
     doc.moveDown(1)
       .fillColor('#CC0000').font('Helvetica-Bold').fontSize(13)
-      .text('Summary', { underline: true })
+      .text('Summary',{underline:true})
       .moveDown(0.3)
       .fillColor('black').font('Helvetica').fontSize(11)
-      .text(caseData.summary, { align: 'justify' });
+      .text(caseData.summary,{align:'justify'});
 
-    const { rows: atts } = await pool.query(
-      'SELECT url FROM attachments WHERE casenum = $1',
-      [cn]
-    );
+    const { rows: atts } = await pool.query('SELECT url FROM attachments WHERE casenum=$1',[cn]);
     if (atts.length) {
       doc.moveDown(0.8)
         .fillColor('#CC0000').font('Helvetica-Bold').fontSize(13)
-        .text('Attachments', { underline: true })
+        .text('Attachments',{underline:true})
         .moveDown(0.3)
         .fillColor('black').font('Helvetica').fontSize(11);
-      atts.forEach((a, i) =>
-        doc.text(`${i + 1}. ${a.url}`, { link: a.url, underline: true })
+      atts.forEach((a,i)=>
+        doc.text(`${i+1}. ${a.url}`,{link:a.url,underline:true})
       );
     }
 
     const { rows: coms } = await pool.query(
-      'SELECT author, content, createdat FROM comments WHERE casenum = $1 ORDER BY createdat',
-      [cn]
+      'SELECT author,content,createdat FROM comments WHERE casenum=$1 ORDER BY createdat',[cn]
     );
     if (coms.length) {
       doc.addPage()
         .fillColor('#CC0000').font('Helvetica-Bold').fontSize(13)
-        .text('Comments', { underline: true })
+        .text('Comments',{underline:true})
         .moveDown(0.3)
         .fillColor('black').font('Helvetica').fontSize(11);
-      coms.forEach(c => {
-        const ts = new Date(c.createdat).toLocaleString('en-US', { timeZone: 'America/New_York' });
+      coms.forEach(c=>{
+        const ts = new Date(c.createdat).toLocaleString('en-US',{timeZone:'America/New_York'});
         doc.font('Helvetica-Bold').text(`${c.author} @ ${ts}`)
            .moveDown(0.1)
-           .font('Helvetica').text(c.content, { indent: 20 })
+           .font('Helvetica').text(c.content,{indent:20})
            .moveDown(0.5);
       });
     }
