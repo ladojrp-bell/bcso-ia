@@ -1,29 +1,74 @@
-<% layout('layout') %>
+
 <h2 class="text-2xl font-semibold mb-4">Active Cases</h2>
+
 <form method="GET" action="/" class="mb-4">
-  <input name="q" placeholder="Search by case # or officer" class="border p-2 rounded">
-  <button type="submit" class="ml-2 bg-blue-600 text-white px-4 py-2 rounded">Search</button>
+  <input
+    name="q"
+    placeholder="Search by case # or officer"
+    class="border p-2 rounded"
+  >
+  <button
+    type="submit"
+    class="ml-2 bg-blue-600 text-white px-4 py-2 rounded"
+  >
+    Search
+  </button>
 </form>
+
 <table class="w-full bg-white shadow-md rounded">
   <thead>
     <tr class="bg-gray-200">
-      <th class="py-2 px-4">Case #</th>
+      <th class="py-2 px-4">Case #</th>
       <th class="py-2 px-4">Officer</th>
       <th class="py-2 px-4">Status</th>
       <th class="py-2 px-4">Severity</th>
       <th class="py-2 px-4">Assigned</th>
       <th class="py-2 px-4">Date</th>
+      <th class="py-2 px-4">Actions</th>
     </tr>
   </thead>
   <tbody>
     <% for (const c of cases) { %>
       <tr class="border-t">
-        <td class="py-2 px-4"><a href="/case/<%= c.caseNum %>" class="text-blue-600 hover:underline"><%= c.caseNum %></a></td>
+        <td class="py-2 px-4">
+          <a
+            href="/case/<%= c.caseNum %>"
+            class="text-blue-600 hover:underline"
+          >
+            <%= c.caseNum %>
+          </a>
+        </td>
         <td class="py-2 px-4"><%= c.officer %></td>
         <td class="py-2 px-4"><%= c.status %></td>
         <td class="py-2 px-4"><%= c.severity %></td>
-        <td class="py-2 px-4"><%= c.assigned %></td>
-        <td class="py-2 px-4"><%= new Date(c.createdAt).toLocaleDateString() %></td>
+        <td class="py-2 px-4"><%= c.assigned || '—' %></td>
+        <td class="py-2 px-4">
+          <%= new Date(c.createdAt).toLocaleDateString() %>
+        </td>
+        <td class="py-2 px-4 space-x-2">
+          <!-- Optional Edit link -->
+          <a
+            href="/case/<%= c.caseNum %>/edit"
+            class="px-2 py-1 bg-blue-600 text-white rounded text-sm"
+          >
+            Edit
+          </a>
+
+          <!-- Delete form -->
+          <form
+            action="/case/<%= c.caseNum %>/delete"
+            method="POST"
+            style="display:inline"
+          >
+            <button
+              type="submit"
+              class="px-2 py-1 bg-red-600 text-white rounded text-sm"
+              onclick="return confirm('Delete case <%= c.caseNum %>?');"
+            >
+              Delete
+            </button>
+          </form>
+        </td>
       </tr>
     <% } %>
   </tbody>
