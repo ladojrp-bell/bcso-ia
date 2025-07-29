@@ -28,11 +28,6 @@ app.use('/static', express.static(path.join(__dirname, 'public')));
 app.use('/images', express.static(path.join(__dirname, 'images')));
 app.use((req, res, next) => {
   res.locals.session = req.session;
-  next();
-});
-
-// ─── Expose session user & role to templates ─────────────────────────────────
-app.use((req, res, next) => {
   res.locals.user = req.session.user;
   res.locals.role = req.session.role;
   next();
@@ -69,7 +64,7 @@ const pool = new Pool({
 });
 
 // ─── Initialize Tables & Seed ─────────────────────────────────────────────────
-;(async () => {
+(async () => {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS cases (
       id SERIAL PRIMARY KEY,
@@ -110,7 +105,7 @@ const pool = new Pool({
     );
   `);
 
-  // seed admin users
+  // Seed admin users
   const adminHash = bcrypt.hashSync(config.dashboardAdminPass, 10);
   await pool.query(
     `INSERT INTO users(username,passwordhash,role)
@@ -127,7 +122,7 @@ const pool = new Pool({
   );
 })();
 
-// ─── Auth ───────────────────────────────────────────────────────────────────
+// ─── Auth Middleware ──────────────────────────────────────────────────────────
 function ensureAuth(req, res, next) {
   if (req.session.user) return next();
   res.redirect('/login');
@@ -137,17 +132,13 @@ function ensureAdmin(req, res, next) {
   res.status(403).send('Forbidden');
 }
 
-// ─── Routes ─────────────────────────────────────────────────────────────────
+// ─── Routes ───────────────────────────────────────────────────────────────────
 
 // Home → /cases or /login
-app.get('/', (req, res) =>
-  req.session.user ? res.redirect('/cases') : res.redirect('/login')
-);
+app.get('/', (req, res) => req.session.user ? res.redirect('/cases') : res.redirect('/login'));
 
 // Login
-app.get('/login', (req, res) =>
-  res.render('login', { title: 'Login', error: null })
-);
+app.get('/login', (req, res) => res.render('login', { title: 'Login', error: null }));
 app.post('/login', async (req, res) => {
   const { username, password } = req.body;
   try {
@@ -166,9 +157,7 @@ app.post('/login', async (req, res) => {
 });
 
 // Logout
-app.get('/logout', (req, res) =>
-  req.session.destroy(() => res.redirect('/login'))
-);
+app.get('/logout', (req, res) => req.session.destroy(() => res.redirect('/login')));
 
 // Manage Users
 app.get('/admin/users', ensureAuth, ensureAdmin, async (req, res) => {
@@ -223,11 +212,9 @@ app.get('/cases', ensureAuth, async (req, res) => {
 });
 
 // New Case Form
-app.get('/case/new', ensureAuth, (req, res) =>
-  res.render('new', { title: 'New Case' })
-);
+app.get('/case/new', ensureAuth, (req, res) => res.render('new', { title: 'New Case' }));
 
-// Create Case
+// Create Case (link‑based evidence)
 app.post('/case/new', ensureAuth, async (req, res) => {
   const {
     complainant,
@@ -238,21 +225,25 @@ app.post('/case/new', ensureAuth, async (req, res) => {
     assigned,
     evidenceLinks
   } = req.body;
-  const now = new Date().toISOString();
-  const stamp = now.slice(0, 10).replace(/-/g, '');
+  const now   = new Date().toISOString();
+  const stamp = now.slice(0,10).replace(/-/g,'');
   const prefix = `IA-${stamp}-`;
+
   try {
     const { rows: countRows } = await pool.query(
       'SELECT COUNT(*)::int AS cnt FROM cases WHERE casenum LIKE $1',
       [`${prefix}%`]
     );
-    const seq = String(countRows[0].cnt + 1).padStart(3, '0');
+    const seq     = String(countRows[0].cnt + 1).padStart(3,'0');
     const caseNum = `${prefix}${seq}`;
+
     await pool.query(
-      `INSERT INTO cases (casenum,complainant,officer,incidentdate,summary,severity,assigned,createdby,createdat)
+      `INSERT INTO cases
+         (casenum,complainant,officer,incidentdate,summary,severity,assigned,createdby,createdat)
        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
       [caseNum, complainant, officer, incidentDate, summary, severity, assigned, req.session.user, now]
     );
+
     (evidenceLinks || '')
       .split(/\r?\n/)
       .map(link => link.trim())
@@ -263,6 +254,7 @@ app.post('/case/new', ensureAuth, async (req, res) => {
           [caseNum, url]
         );
       });
+
     res.redirect(`/case/${caseNum}`);
   } catch (e) {
     console.error('Failed to create case:', e);
@@ -278,13 +270,15 @@ app.get('/case/:caseNum', ensureAuth, async (req, res) => {
       `SELECT casenum AS "caseNum", status, assigned, severity,
          incidentdate AS "incidentDate", createdby AS "createdBy",
          createdat AS "createdAt", summary
-       FROM cases WHERE casenum=$1`,
+       FROM cases WHERE casenum = $1`,
       [cn]
     );
     if (!rows[0]) return res.status(404).send('Not found');
+
     let caseData = rows[0];
     caseData.incidentDate = new Date(caseData.incidentDate).toLocaleString('en-US', {
-      timeZone: 'America/New_York', month: 'long', day: 'numeric', year: 'numeric'
+      timeZone: 'America/New_York',
+      month: 'long', day: 'numeric', year: 'numeric'
     });
     caseData.createdAt = new Date(caseData.createdAt).toLocaleString('en-US', {
       timeZone: 'America/New_York'
@@ -292,7 +286,7 @@ app.get('/case/:caseNum', ensureAuth, async (req, res) => {
 
     let { rows: comments } = await pool.query(
       `SELECT author, content, createdat AS "createdAt"
-       FROM comments WHERE casenum=$1 ORDER BY createdat`,
+       FROM comments WHERE casenum = $1 ORDER BY createdat`,
       [cn]
     );
     comments = comments.map(c => ({
@@ -303,7 +297,7 @@ app.get('/case/:caseNum', ensureAuth, async (req, res) => {
     }));
 
     const { rows: attachments } = await pool.query(
-      'SELECT url FROM attachments WHERE casenum=$1',
+      'SELECT url FROM attachments WHERE casenum = $1',
       [cn]
     );
 
@@ -321,12 +315,12 @@ app.get('/case/:caseNum/edit', ensureAuth, async (req, res) => {
     const { rows } = await pool.query(
       `SELECT casenum AS "caseNum", complainant, officer,
          incidentdate AS "incidentDate", summary, severity, status, assigned
-       FROM cases WHERE casenum=$1`,
+       FROM cases WHERE casenum = $1`,
       [cn]
     );
     const caseData = rows[0];
     if (!caseData) return res.status(404).send('Not found');
-    caseData.incidentDate = new Date(caseData.incidentDate).toISOString().slice(0, 10);
+    caseData.incidentDate = new Date(caseData.incidentDate).toISOString().slice(0,10);
     res.render('edit', { title: `Edit Case ${cn}`, caseData });
   } catch (e) {
     console.error(e);
@@ -382,13 +376,16 @@ app.post('/case/:caseNum/delete', ensureAuth, ensureAdmin, async (req, res) => {
 // Export PDF
 app.get('/case/:caseNum/export', ensureAuth, async (req, res) => {
   const cn = req.params.caseNum;
-  res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader('Content-Disposition', `attachment; filename="BCSO_IA_Case_${cn}.pdf"`);
+  res.setHeader('Content-Type','application/pdf');
+  res.setHeader('Content-Disposition',`attachment; filename="BCSO_IA_Case_${cn}.pdf"`);
   const doc = new PDFDocument({ size: 'LETTER', margin: 50 });
   doc.pipe(res);
 
   try {
-    const { rows: caseRows } = await pool.query('SELECT * FROM cases WHERE casenum=$1', [cn]);
+    const { rows: caseRows } = await pool.query(
+      'SELECT * FROM cases WHERE casenum = $1',
+      [cn]
+    );
     const caseData = caseRows[0];
     if (!caseData) return res.status(404).send('Not found');
 
@@ -411,14 +408,20 @@ app.get('/case/:caseNum/export', ensureAuth, async (req, res) => {
 
     doc
       .font('Helvetica-Bold').fontSize(12).fillColor('black')
-      .text('Case Number:', labelOpts).font('Helvetica').text(caseData.casenum, valueOpts)
-      .font('Helvetica-Bold').text('Status:', labelOpts).font('Helvetica').text(caseData.status, valueOpts)
+      .text('Case Number:', labelOpts)
+      .font('Helvetica').text(caseData.casenum, valueOpts)
+      .font('Helvetica-Bold').text('Status:', labelOpts)
+      .font('Helvetica').text(caseData.status, valueOpts)
       .moveDown(0.2)
-      .font('Helvetica-Bold').text('Reported By:', labelOpts).font('Helvetica').text(caseData.complainant, valueOpts)
-      .font('Helvetica-Bold').text('Officer:', labelOpts).font('Helvetica').text(caseData.officer, valueOpts)
+      .font('Helvetica-Bold').text('Reported By:', labelOpts)
+      .font('Helvetica').text(caseData.complainant, valueOpts)
+      .font('Helvetica-Bold').text('Officer:', labelOpts)
+      .font('Helvetica').text(caseData.officer, valueOpts)
       .moveDown(0.2)
-      .font('Helvetica-Bold').text('Date of Incident:', labelOpts).font('Helvetica').text(caseData.incidentdate.toISOString().slice(0,10), valueOpts)
-      .font('Helvetica-Bold').text('Assigned To:', labelOpts).font('Helvetica').text(caseData.assigned || 'Unassigned', valueOpts);
+      .font('Helvetica-Bold').text('Date of Incident:', labelOpts)
+      .font('Helvetica').text(caseData.incidentdate.toISOString().slice(0,10), valueOpts)
+      .font('Helvetica-Bold').text('Assigned To:', labelOpts)
+      .font('Helvetica').text(caseData.assigned || 'Unassigned', valueOpts);
 
     doc.moveDown(1)
       .fillColor('#CC0000').font('Helvetica-Bold').fontSize(13)
@@ -427,7 +430,10 @@ app.get('/case/:caseNum/export', ensureAuth, async (req, res) => {
       .fillColor('black').font('Helvetica').fontSize(11)
       .text(caseData.summary, { align: 'justify' });
 
-    const { rows: atts } = await pool.query('SELECT url FROM attachments WHERE casenum=$1', [cn]);
+    const { rows: atts } = await pool.query(
+      'SELECT url FROM attachments WHERE casenum = $1',
+      [cn]
+    );
     if (atts.length) {
       doc.moveDown(0.8)
         .fillColor('#CC0000').font('Helvetica-Bold').fontSize(13)
@@ -440,7 +446,7 @@ app.get('/case/:caseNum/export', ensureAuth, async (req, res) => {
     }
 
     const { rows: coms } = await pool.query(
-      'SELECT author,content,createdat FROM comments WHERE casenum=$1 ORDER BY createdat',
+      'SELECT author, content, createdat FROM comments WHERE casenum = $1 ORDER BY createdat',
       [cn]
     );
     if (coms.length) {
