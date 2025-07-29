@@ -225,39 +225,49 @@ app.post('/case/new', ensureAuth, async (req, res) => {
     assigned,
     evidenceLinks
   } = req.body;
+
   const now   = new Date().toISOString();
-  const stamp = now.slice(0,10).replace(/-/g,'');
+  const stamp = now.slice(0, 10).replace(/-/g, '');
   const prefix = `IA-${stamp}-`;
 
   try {
+    // 1) Figure out the next sequence number for today
     const { rows: countRows } = await pool.query(
       'SELECT COUNT(*)::int AS cnt FROM cases WHERE casenum LIKE $1',
       [`${prefix}%`]
     );
-    const seq     = String(countRows[0].cnt + 1).padStart(3,'0');
+    const seq     = String(countRows[0].cnt + 1).padStart(3, '0');
     const caseNum = `${prefix}${seq}`;
 
+    // 2) Insert the new case
     await pool.query(
       `INSERT INTO cases
-         (casenum,complainant,officer,incidentdate,summary,severity,assigned,createdby,createdat)
+        (casenum,complainant,officer,incidentdate,summary,
+         severity,assigned,createdby,createdat)
        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-      [caseNum, complainant, officer, incidentDate, summary, severity, assigned, req.session.user, now]
+      [caseNum, complainant, officer, incidentDate,
+       summary, severity, assigned, req.session.user, now]
     );
 
-    (evidenceLinks || '')
+    // 3) Parse and insert each link as an attachment
+    const links = (evidenceLinks || '')
       .split(/\r?\n/)
-      .map(link => link.trim())
-      .filter(link => link)
-      .forEach(async url => {
-        await pool.query(
+      .map(l => l.trim())
+      .filter(Boolean);
+
+    await Promise.all(
+      links.map(url =>
+        pool.query(
           'INSERT INTO attachments(casenum,url) VALUES($1,$2)',
           [caseNum, url]
-        );
-      });
+        )
+      )
+    );
 
+    // 4) Redirect to the freshly created case page
     res.redirect(`/case/${caseNum}`);
-  } catch (e) {
-    console.error('Failed to create case:', e);
+  } catch (err) {
+    console.error('Error creating case:', err);
     res.status(500).send('Failed to create case');
   }
 });
