@@ -28,6 +28,13 @@ app.use('/static', express.static(path.join(__dirname, 'public')));
 app.use('/images', express.static(path.join(__dirname, 'images')));
 app.use((req, res, next) => { res.locals.session = req.session; next(); });
 
+// ─── Expose session user & role to templates ─────────────────────────────────
+app.use((req, res, next) => {
+  res.locals.user = req.session.user;
+  res.locals.role = req.session.role;
+  next();
+});
+
 // ─── Config ─────────────────────────────────────────────────────────────────
 const config = {
   token: process.env.BOT_TOKEN,
