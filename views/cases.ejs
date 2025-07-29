@@ -14,6 +14,7 @@
       <th class="px-4 py-2 border">Assigned</th>
       <th class="px-4 py-2 border">Creator</th>
       <th class="px-4 py-2 border">Created At</th>
+      <th class="px-4 py-2 border">Actions</th>
     </tr>
   </thead>
   <tbody>
@@ -27,8 +28,18 @@
         <td class="px-4 py-2 border"><%= c.status %></td>
         <td class="px-4 py-2 border"><%= c.assigned || '—' %></td>
         <td class="px-4 py-2 border"><%= c.createdBy %></td>
-        <td class="px-4 py-2 border">
-          <%= new Date(c.createdAt).toLocaleString() %>
+        <td class="px-4 py-2 border"><%= new Date(c.createdAt).toLocaleString() %></td>
+        <td class="px-4 py-2 border space-x-2">
+          <a href="/case/<%= c.caseNum %>/edit" class="px-2 py-1 bg-blue-600 text-white rounded text-sm">
+            Edit
+          </a>
+          <% if (role === 'admin') { %>
+            <form action="/case/<%= c.caseNum %>/delete" method="POST" style="display:inline">
+              <button type="submit" class="px-2 py-1 bg-red-600 text-white rounded text-sm" onclick="return confirm('Are you sure you want to delete case <%= c.caseNum %>?');">
+                Delete
+              </button>
+            </form>
+          <% } %>
         </td>
       </tr>
     <% }) %>
