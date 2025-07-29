@@ -54,38 +54,3 @@
     <% } %>
   </div>
 </form>
-And in your index.js, add this route (making sure it comes after your DB setup and ensureAuthenticated middleware):
-
-js
-Copy
-Edit
-// Middleware to ensure only admins can delete:
-function ensureAdmin(req, res, next) {
-  if (req.user && req.user.isAdmin) {
-    return next();
-  }
-  req.flash('error', 'You do not have permission to do that.');
-  res.redirect('/cases');
-}
-
-app.post(
-  '/case/:caseNum/delete',
-  ensureAuthenticated,
-  ensureAdmin,
-  (req, res) => {
-    const caseNum = req.params.caseNum;
-    db.run(
-      'DELETE FROM cases WHERE caseNum = ?',
-      [caseNum],
-      function(err) {
-        if (err) {
-          console.error('Error deleting case:', err);
-          req.flash('error', 'Failed to delete case.');
-          return res.redirect(`/case/${caseNum}`);
-        }
-        req.flash('success', `Case ${caseNum} deleted.`);
-        res.redirect('/cases');
-      }
-    );
-  }
-);
