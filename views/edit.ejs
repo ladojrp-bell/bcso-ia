@@ -30,22 +30,28 @@
   </div>
 
   <div class="flex items-center">
-    <button type="submit" class="px-4 py-2 bg-yellow-500 text-white rounded hover:bg-yellow-600">
+    <button
+      type="submit"
+      class="px-4 py-2 bg-yellow-500 text-white rounded hover:bg-yellow-600"
+    >
       Save Changes
     </button>
-    <a href="/case/<%= caseData.caseNum %>" class="ml-4 text-blue-600 underline">
+    <a
+      href="/case/<%= caseData.caseNum %>"
+      class="ml-4 text-blue-600 underline"
+    >
       Cancel
     </a>
 
-    <% if (req.user && req.user.isAdmin) { %>
-      <form 
-        method="POST" 
-        action="/case/<%= caseData.caseNum %>/delete" 
-        style="display:inline; margin-left:1rem;" 
+    <% if (role === 'admin') { %>
+      <form
+        method="POST"
+        action="/case/<%= caseData.caseNum %>/delete"
+        style="display:inline; margin-left:1rem;"
         onsubmit="return confirm('Are you sure you want to delete case <%= caseData.caseNum %>?');"
       >
-        <button 
-          type="submit" 
+        <button
+          type="submit"
           class="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
         >
           Delete Case
