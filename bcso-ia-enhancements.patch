@@ -1,0 +1,472 @@
+From 0000000000000000000000000000000000000000 Mon Jul 29 00:00:00 2025
+From: IA Dashboard Enhancements <you@example.com>
+Subject: [PATCH] Add Equipment Admin & UOF modules, link‑based evidence
+
+---
+ index.js                                         | 234 ++++++++++++++++++++++++++++++------------------------
+ views/layout.ejs                                 |   4 +++
+ views/new.ejs                                    |  20 +++++++
+ views/case.ejs                                   |  21 ++++++
+ views/cases.ejs                                  |   0
+ views/manage_equipment.ejs                       |  75 +++++++++++++++++++
+ views/new_equipment.ejs                          |  33 ++++++++
+ views/uof_list.ejs                               |  28 +++++++
+ views/new_uof.ejs                                |  26 ++++++
+ views/view_uof.ejs                               |  25 ++++++
+ views/edit_uof.ejs                               |  27 +++++++
+ 12 files changed, 473 insertions(+), 21 deletions(-)
+ create mode 100644 views/manage_equipment.ejs
+ create mode 100644 views/new_equipment.ejs
+ create mode 100644 views/uof_list.ejs
+ create mode 100644 views/new_uof.ejs
+ create mode 100644 views/view_uof.ejs
+ create mode 100644 views/edit_uof.ejs
+
+diff --git a/index.js b/index.js
+index abcdef1..1234567 100644
+--- a/index.js
++++ b/index.js
+@@ -1,6 +1,8 @@
+ require('dotenv').config();
+ const express = require('express');
++const expressLayouts = require('express-ejs-layouts');
+ const session = require('express-session');
+ const bodyParser = require('body-parser');
+ const { Client, Intents } = require('discord.js');
++const { REST } = require('@discordjs/rest');
+ const { Routes } = require('discord-api-types/v9');
+ const { Pool } = require('pg');
+ const bcrypt = require('bcrypt');
+@@ -14,6 +16,14 @@ const PDFDocument = require('pdfkit');
+ const app = express();
+ const PORT = process.env.PORT || 3000;
+ 
++// ─── View Engine ─────────────────────────────────────────────────────────────
++app.set('view engine','ejs');
++app.set('views',path.join(__dirname,'views'));
++app.use(expressLayouts);
++app.set('layout','layout');
++
++// ─── Middleware ───────────────────────────────────────────────────────────────
+ app.use(bodyParser.urlencoded({ extended: false }));
+ app.use(session({ secret: 'ia_secret', resave: false, saveUninitialized: false }));
+ app.use('/static', express.static(path.join(__dirname, 'public')));
+@@ -30,6 +40,7 @@ app.use('/images', express.static(path.join(__dirname, 'images')));
+ app.use((req, res, next) => {
+   res.locals.session = req.session;
+   res.locals.user = req.session.user;
++  res.locals.role = req.session.role;
+   next();
+ });
+ 
+@@ -104,6 +115,220 @@ // ─── Routes ───────────────────────────────────────────────────────────────────
+ app.get('/heartbeat', (req, res) => res.sendStatus(200));
+ 
+ // ─── Start Server ─────────────────────────────────────────────────────────────
+-app.listen(PORT, () => console.log(`Running on http://localhost:${PORT}`));
++app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
++
++// ───────────────────────────────────────────────────────────────────────────────
++//  Equipment Admin & UOF Modules
++// ───────────────────────────────────────────────────────────────────────────────
++
++// List all equipment (in your main inventory)
++app.get('/equipment', ensureAuth, async (req,res) => {
++  const { rows } = await pool.query('SELECT * FROM equipment ORDER BY created_at DESC');
++  res.render('equipment', { title:'Equipment Inventory', equipment:rows });
++});
++
++// New equipment form
++app.get('/equipment/new', ensureAuth, ensureAdmin, (req,res)=> {
++  res.render('new_equipment',{ title:'Add Equipment' });
++});
++
++// Create equipment
++app.post('/equipment/new', ensureAuth, ensureAdmin, async (req,res)=>{
++  const { type, model, serial_number, notes } = req.body;
++  await pool.query(
++    `INSERT INTO equipment(type,model,serial_number,notes)
++       VALUES($1,$2,$3,$4)`,
++    [type, model, serial_number, notes]
++  );
++  res.redirect('/equipment');
++});
++
++// Equipment Admin panel: filter by deputy
++app.get('/equipment/manage', ensureAuth, ensureAdmin, async (req,res)=>{
++  const filterOfficer = req.query.officer || null;
++
++  // deputies with issued gear
++  const { rows: deputies } = await pool.query(`
++    SELECT DISTINCT officer
++      FROM equipment_history eh
++      JOIN equipment e ON e.id=eh.equipment_id
++     WHERE eh.action='Issued' AND e.status='Issued'
++  `);
++
++  // all currently issued items
++  let q = `
++    SELECT e.id,e.type,e.model,e.serial_number,
++           eh.officer,eh.timestamp AS issuedAt
++      FROM equipment e
++      JOIN equipment_history eh ON eh.equipment_id=e.id
++     WHERE eh.action='Issued' AND e.status='Issued'
++  `;
++  const params = [];
++  if(filterOfficer){
++    q += ' AND eh.officer=$1';
++    params.push(filterOfficer);
++  }
++  q += ' ORDER BY eh.officer,eh.timestamp DESC';
++  const { rows: items } = await pool.query(q,params);
++
++  res.render('manage_equipment',{
++    title:'Equipment Admin',
++    deputies, items, filterOfficer
++  });
++});
++
++// Issue / reassign equipment
++app.post('/equipment/:id/issue', ensureAuth, ensureAdmin, async (req,res)=>{
++  const eqId = req.params.id;
++  const { officer, case_num, notes } = req.body;
++  await pool.query('UPDATE equipment SET status=$1 WHERE id=$2',['Issued',eqId]);
++  await pool.query(
++    `INSERT INTO equipment_history(equipment_id,action,officer,case_num,notes)
++       VALUES($1,'Issued',$2,$3,$4)`,
++    [eqId, officer, case_num||null, notes||null]
++  );
++  res.redirect('/equipment/manage');
++});
++
++// Return equipment
++app.post('/equipment/:id/return', ensureAuth, ensureAdmin, async (req,res)=>{
++  const eqId = req.params.id;
++  await pool.query('UPDATE equipment SET status=$1 WHERE id=$2',['In Stock',eqId]);
++  await pool.query(
++    `INSERT INTO equipment_history(equipment_id,action,officer,notes)
++       VALUES($1,'Returned',$2,$3)`,
++    [eqId, req.session.user, req.body.notes||null]
++  );
++  res.redirect('/equipment/manage');
++});
++
++// List all UOF reviews
++app.get('/uof-reviews', ensureAuth, async (req,res)=>{
++  const { rows } = await pool.query(`
++    SELECT case_num AS "caseNum", review_date, reviewer
++      FROM uof_reviews
++     ORDER BY review_date DESC
++  `);
++  res.render('uof_list',{ title:'Use‑of‑Force Reviews', reviews:rows });
++});
++
++// New UOF
++app.get('/uof-reviews/new', ensureAuth, ensureAdmin, (req,res)=>{
++  res.render('new_uof',{ title:'New UOF Review' });
++});
++app.post('/uof-reviews/new', ensureAuth, ensureAdmin, async (req,res)=>{
++  const { caseNum, review_date, reviewer, findings, policy_sections, recommended_actions } = req.body;
++  await pool.query(`
++    INSERT INTO uof_reviews(case_num,review_date,reviewer,findings,policy_sections,recommended_actions)
++    VALUES($1,$2,$3,$4,$5,$6)`,
++    [caseNum,review_date,reviewer,findings,policy_sections,recommended_actions]
++  );
++  res.redirect('/uof-reviews');
++});
++
++// View UOF
++app.get('/uof-reviews/:caseNum', ensureAuth, async (req,res)=>{
++  const { rows } = await pool.query('SELECT * FROM uof_reviews WHERE case_num=$1',[req.params.caseNum]);
++  if(!rows[0]) return res.status(404).send('Not found');
++  res.render('view_uof',{ title:`UOF Review ${req.params.caseNum}`, review:rows[0] });
++});
++
++// Edit UOF
++app.get('/uof-reviews/:caseNum/edit', ensureAuth, ensureAdmin, async (req,res)=>{
++  const { rows } = await pool.query('SELECT * FROM uof_reviews WHERE case_num=$1',[req.params.caseNum]);
++  if(!rows[0]) return res.status(404).send('Not found');
++  res.render('edit_uof',{ title:`Edit UOF ${req.params.caseNum}`, review:rows[0] });
++});
++app.post('/uof-reviews/:caseNum/edit', ensureAuth, ensureAdmin, async (req,res)=>{
++  const cn = req.params.caseNum;
++  const { review_date, reviewer, findings, policy_sections, recommended_actions } = req.body;
++  await pool.query(`
++    UPDATE uof_reviews
++       SET review_date=$1,reviewer=$2,findings=$3,
++           policy_sections=$4,recommended_actions=$5
++     WHERE case_num=$6
++  `, [review_date,reviewer,findings,policy_sections,recommended_actions,cn]);
++  res.redirect(`/uof-reviews/${cn}`);
++});
++
++// End patch
+diff --git a/views/layout.ejs b/views/layout.ejs
+index 1111111..2222222 100644
+--- a/views/layout.ejs
++++ b/views/layout.ejs
+@@ -9,6 +9,9 @@
+       <% if (session.user) { %>
+         <nav class="space-x-4">
+           <a href="/cases" class="hover:underline">IA Dashboard</a>
++          <% if (role==='admin') { %>
++            <a href="/equipment/manage" class="hover:underline text-red-600">Equipment Admin</a>
++          <% } %>
+           <a href="/case/new" class="hover:underline">New Case</a>
+           <% if (session.role === 'admin') { %>
+             <a href="/admin/users" class="hover:underline">Users</a>
+diff --git a/views/new.ejs b/views/new.ejs
+index 3333333..4444444 100644
+--- a/views/new.ejs
++++ b/views/new.ejs
+@@ -1,7 +1,27 @@
+ <h2 class="text-2xl font-semibold mb-4">New IA Case</h2>
+-<form method="POST" action="/case/new" enctype="multipart/form-data" class="space-y-4">
++<form method="POST" action="/case/new" class="space-y-4">
+   <input name="complainant" placeholder="Complainant" required class="border p-2 w-full rounded">
+   <input name="officer"     placeholder="Officer"     required class="border p-2 w-full rounded">
+   <input type="date" name="incidentDate" required class="border p-2 w-full rounded">
+   <textarea name="summary" placeholder="Summary" required class="border p-2 w-full rounded"></textarea>
+   <select name="severity" class="border p-2 w-full rounded">
+     <option value="Low">Low</option>
+     <option value="Medium">Medium</option>
+     <option value="High">High</option>
+   </select>
++
++  <label class="block">
++    <span class="text-gray-700">Evidence Links (one per line)</span>
++    <textarea
++      name="evidenceLinks"
++      rows="4"
++      placeholder="https://imgur.com/abcd1234\nhttps://youtu.be/xyz987"
++      class="mt-1 block w-full border p-2 rounded"
++    ></textarea>
++    <p class="text-sm text-gray-500">
++      Paste direct URLs to images or videos (Imgur, YouTube, etc.), one per line.
++    </p>
++  </label>
++
+   <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded">
+     Create Case
+   </button>
+diff --git a/views/case.ejs b/views/case.ejs
+index 5555555..6666666 100644
+--- a/views/case.ejs
++++ b/views/case.ejs
+@@ -45,6 +45,19 @@ Add a Comment
+ </form>
+ 
++<% if (role==='admin') { %>
++  <h2 class="mt-6 text-lg font-semibold">Assign Equipment</h2>
++  <form method="POST" action="/case/<%= caseData.caseNum %>/assign-equipment" class="space-y-2">
++    <select name="equipment_id" required class="border p-2 rounded">
++      <option value="">— Select In‑Stock —</option>
++      <% equipmentList.forEach(eq => { if(eq.status==='In Stock'){ %>
++        <option value="<%= eq.id %>">
++          <%= eq.type %> | S/N <%= eq.serial_number %>
++        </option>
++      <% } }) %>
++    </select>
++    <textarea name="notes" placeholder="Notes (optional)" class="border p-2 rounded"></textarea>
++    <button class="px-4 py-2 bg-blue-600 text-white rounded">Assign Equipment</button>
++  </form>
++<% } %>
++
+ <% if (attachments.length) { %>
+   <h2 class="text-xl font-semibold">Attachments</h2>
+   <ul class="list-disc list-inside mb-4">
+diff --git a/views/manage_equipment.ejs b/views/manage_equipment.ejs
+new file mode 100644
+index 0000000..abcdef0
+--- /dev/null
++++ b/views/manage_equipment.ejs
+@@ -0,0 +1,75 @@
++<h1 class="text-2xl font-bold mb-4">Equipment Admin</h1>
++
++<form method="GET" action="/equipment/manage" class="mb-6">
++  <label class="mr-2 font-semibold">Filter by Deputy:</label>
++  <select name="officer" onchange="this.form.submit()" class="border p-2 rounded">
++    <option value="">— All Deputies —</option>
++    <% deputies.forEach(d=>{ %>
++      <option value="<%= d.officer %>" <%= filterOfficer===d.officer?'selected':'' %>>
++        <%= d.officer %>
++      </option>
++    <% }) %>
++  </select>
++</form>
++
++<table class="min-w-full bg-white border">
++  <thead>
++    <tr class="bg-gray-100">
++      <th class="px-4 py-2 border">Type</th>
++      <th class="px-4 py-2 border">Model</th>
++      <th class="px-4 py-2 border">S/N</th>
++      <th class="px-4 py-2 border">Issued To</th>
++      <th class="px-4 py-2 border">When</th>
++      <th class="px-4 py-2 border">Actions</th>
++    </tr>
++  </thead>
++  <tbody>
++    <% items.forEach(item=>{ %>
++      <tr>
++        <td class="px-4 py-2 border"><%= item.type %></td>
++        <td class="px-4 py-2 border"><%= item.model %></td>
++        <td class="px-4 py-2 border"><%= item.serial_number %></td>
++        <td class="px-4 py-2 border"><%= item.officer %></td>
++        <td class="px-4 py-2 border"><%= new Date(item.issuedAt).toLocaleString() %></td>
++        <td class="px-4 py-2 border space-x-2">
++          <form method="POST" action="/equipment/<%= item.id %>/return" class="inline">
++            <button class="px-2 py-1 bg-green-600 text-white rounded text-sm">Return</button>
++          </form>
++          <button onclick="openReassignModal(<%= item.id %>)"
++            class="px-2 py-1 bg-blue-600 text-white rounded text-sm">Reassign</button>
++        </td>
++      </tr>
++    <% }) %>
++    <% if(!items.length){ %>
++      <tr><td colspan="6" class="text-center py-4">No equipment issued.</td></tr>
++    <% } %>
++  </tbody>
++</table>
++
++<div id="reassignModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center">
++  <div class="bg-white p-6 rounded shadow-lg w-96">
++    <h2 class="text-xl font-semibold mb-4">Reassign Equipment</h2>
++    <form id="reassignForm" method="POST">
++      <label class="block mb-2">New Deputy:
++        <select name="officer" required class="w-full border p-2 rounded">
++          <% deputies.forEach(d=>{ %>
++            <option value="<%= d.officer %>"><%= d.officer %></option>
++          <% }) %>
++        </select>
++      </label>
++      <label class="block mb-4">Notes:
++        <textarea name="notes" rows="2" class="w-full border p-2 rounded"></textarea>
++      </label>
++      <div class="flex justify-end space-x-2">
++        <button type="button" onclick="closeReassignModal()" class="px-4 py-2 bg-gray-400 rounded">Cancel</button>
++        <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded">Save</button>
++      </div>
++    </form>
++  </div>
++</div>
++
++<script>
++  function openReassignModal(id){
++    const m = document.getElementById('reassignModal');
++    const f = document.getElementById('reassignForm');
++    f.action = `/equipment/${id}/issue`;
++    m.classList.remove('hidden');
++  }
++  function closeReassignModal(){ document.getElementById('reassignModal').classList.add('hidden'); }
++</script>
+diff --git a/views/new_equipment.ejs b/views/new_equipment.ejs
+new file mode 100644
+index 0000000..abcdef1
+--- /dev/null
++++ b/views/new_equipment.ejs
+@@ -0,0 +1,33 @@
++<h1 class="text-2xl font-semibold mb-4">Add Equipment</h1>
++<form method="POST" action="/equipment/new" class="space-y-4">
++  <label>Type:
++    <input name="type" required class="border p-2 w-full rounded">
++  </label>
++  <label>Model:
++    <input name="model" class="border p-2 w-full rounded">
++  </label>
++  <label>Serial Number:
++    <input name="serial_number" required class="border p-2 w-full rounded">
++  </label>
++  <label>Notes:
++    <textarea name="notes" class="border p-2 w-full rounded"></textarea>
++  </label>
++  <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded">
++    Add to Inventory
++  </button>
++</form>
+diff --git a/views/uof_list.ejs b/views/uof_list.ejs
+new file mode 100644
+index 0000000..abcdef2
+--- /dev/null
++++ b/views/uof_list.ejs
+@@ -0,0 +1,28 @@
++<h1 class="text-2xl font-bold mb-4">Use‑of‑Force Reviews</h1>
++<a href="/uof-reviews/new" class="bg-green-600 px-4 py-2 text-white rounded">+ New Review</a>
++<table class="min-w-full mt-4">
++  <thead>
++    <tr>
++      <th class="px-4 py-2 border">Case #</th>
++      <th class="px-4 py-2 border">Date</th>
++      <th class="px-4 py-2 border">Reviewer</th>
++    </tr>
++  </thead>
++  <tbody>
++    <% reviews.forEach(r => { %>
++      <tr>
++        <td class="px-4 py-2 border">
++          <a href="/uof-reviews/<%= r.caseNum %>" class="underline"><%= r.caseNum %></a>
++        </td>
++        <td class="px-4 py-2 border"><%= new Date(r.review_date).toLocaleDateString() %></td>
++        <td class="px-4 py-2 border"><%= r.reviewer %></td>
++      </tr>
++    <% }) %>
++  </tbody>
++</table>
+diff --git a/views/new_uof.ejs b/views/new_uof.ejs
+new file mode 100644
+index 0000000..abcdef3
+--- /dev/null
++++ b/views/new_uof.ejs
+@@ -0,0 +1,26 @@
++<h1 class="text-2xl font-semibold mb-4">New Use‑of‑Force Review</h1>
++<form method="POST" action="/uof-reviews/new" class="space-y-4">
++  <input name="caseNum" placeholder="Case # (IA-YYYYMMDD-XXX)" required class="border p-2 w-full rounded">
++  <input type="date" name="review_date" required class="border p-2 w-full rounded">
++  <input name="reviewer" placeholder="Reviewer" required class="border p-2 w-full rounded">
++  <textarea name="findings" placeholder="Findings" class="border p-2 w-full rounded"></textarea>
++  <textarea name="policy_sections" placeholder="Policy Sections" class="border p-2 w-full rounded"></textarea>
++  <textarea name="recommended_actions" placeholder="Recommended Actions" class="border p-2 w-full rounded"></textarea>
++  <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded">
++    Save Review
++  </button>
++</form>
+diff --git a/views/view_uof.ejs b/views/view_uof.ejs
+new file mode 100644
+index 0000000..abcdef4
+--- /dev/null
++++ b/views/view_uof.ejs
+@@ -0,0 +1,25 @@
++<h1 class="text-2xl font-bold mb-4">UOF Review: <%= review.case_num %></h1>
++<p><strong>Date:</strong> <%= new Date(review.review_date).toLocaleDateString() %></p>
++<p><strong>Reviewer:</strong> <%= review.reviewer %></p>
++<h2 class="text-xl font-semibold mt-4">Findings</h2>
++<p class="mb-4"><%= review.findings %></p>
++<h2 class="text-xl font-semibold">Policy Sections</h2>
++<p class="mb-4"><%= review.policy_sections %></p>
++<h2 class="text-xl font-semibold">Recommended Actions</h2>
++<p class="mb-4"><%= review.recommended_actions %></p>
++<div class="mt-6 space-x-2">
++  <% if (role==='admin') { %>
++    <a href="/uof-reviews/<%= review.case_num %>/edit" class="px-4 py-2 bg-yellow-500 text-white rounded">Edit</a>
++  <% } %>
++  <a href="/uof-reviews" class="px-4 py-2 bg-gray-400 text-white rounded">← Back</a>
++</div>
+diff --git a/views/edit_uof.ejs b/views/edit_uof.ejs
+new file mode 100644
+index 0000000..abcdef5
+--- /dev/null
++++ b/views/edit_uof.ejs
+@@ -0,0 +1,27 @@
++<h1 class="text-2xl font-semibold mb-4">Edit UOF Review <%= review.case_num %></h1>
++<form method="POST" action="/uof-reviews/<%= review.case_num %>/edit" class="space-y-4">
++  <input name="caseNum" value="<%= review.case_num %>" disabled class="border p-2 w-full rounded bg-gray-100">
++  <input type="date" name="review_date" required value="<%= review.review_date.toISOString().slice(0,10) %>" class="border p-2 w-full rounded">
++  <input name="reviewer" required value="<%= review.reviewer %>" class="border p-2 w-full rounded">
++  <textarea name="findings" class="border p-2 w-full rounded"><%= review.findings %></textarea>
++  <textarea name="policy_sections" class="border p-2 w-full rounded"><%= review.policy_sections %></textarea>
++  <textarea name="recommended_actions" class="border p-2 w-full rounded"><%= review.recommended_actions %></textarea>
++  <div class="space-x-2">
++    <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded">Save Changes</button>
++    <a href="/uof-reviews/<%= review.case_num %>" class="px-4 py-2 bg-gray-400 text-white rounded">Cancel</a>
++  </div>
++</form>
